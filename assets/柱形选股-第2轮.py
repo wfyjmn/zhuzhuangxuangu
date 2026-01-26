@@ -5,6 +5,7 @@ DeepQuant Pro V2.1 - 终极修复版
 1. 整合了高效的数据获取模块 (efficient_fetch_stock_data)
 2. 整合了评分重算模块 (calculate_score)
 3. 整合了风控双轨制 (保护缩量洗盘)
+更新：支持从配置文件读取参数
 """
 
 import tushare as ts
@@ -14,14 +15,58 @@ import time
 import datetime
 import os
 import re
+import json
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ================= 配置区域 =================
 MY_TOKEN = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
 
-# 输入文件：第1轮生成的 CSV
-INPUT_FILE = 'Best_Pick_20260123.csv'
+# 参数配置文件
+PARAMS_FILE = 'strategy_params.json'
+
+# 默认参数（如果配置文件不存在时使用）
+DEFAULT_PARAMS = {
+    'SCORE_THRESHOLD_NORMAL': 55,
+    'SCORE_THRESHOLD_WASH': 45,
+    'TURNOVER_THRESHOLD_NORMAL': 1.5,
+    'TURNOVER_THRESHOLD_WASH': 0.6,
+    'TOP_N_PER_STRATEGY': 5
+}
+
+# 从配置文件加载参数
+def load_params():
+    """加载参数配置"""
+    if os.path.exists(PARAMS_FILE):
+        try:
+            with open(PARAMS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                second_round = data.get('params', {}).get('second_round', {})
+                return {
+                    'SCORE_THRESHOLD_NORMAL': second_round.get('SCORE_THRESHOLD_NORMAL', 55),
+                    'SCORE_THRESHOLD_WASH': second_round.get('SCORE_THRESHOLD_WASH', 45),
+                    'TURNOVER_THRESHOLD_NORMAL': second_round.get('TURNOVER_THRESHOLD_NORMAL', 1.5),
+                    'TURNOVER_THRESHOLD_WASH': second_round.get('TURNOVER_THRESHOLD_WASH', 0.6),
+                    'TOP_N_PER_STRATEGY': second_round.get('TOP_N_PER_STRATEGY', 5)
+                }
+        except Exception as e:
+            print(f"[警告] 加载参数配置失败，使用默认参数: {e}")
+    return DEFAULT_PARAMS
+
+# 加载参数
+PARAMS = load_params()
+SCORE_THRESHOLD_NORMAL = PARAMS['SCORE_THRESHOLD_NORMAL']
+SCORE_THRESHOLD_WASH = PARAMS['SCORE_THRESHOLD_WASH']
+TURNOVER_THRESHOLD_NORMAL = PARAMS['TURNOVER_THRESHOLD_NORMAL']
+TURNOVER_THRESHOLD_WASH = PARAMS['TURNOVER_THRESHOLD_WASH']
+TOP_N_PER_STRATEGY = PARAMS['TOP_N_PER_STRATEGY']
+
+print(f"[系统] 加载参数: SCORE_NORMAL={SCORE_THRESHOLD_NORMAL}, SCORE_WASH={SCORE_THRESHOLD_WASH}")
+
+# 动态生成输入文件名
+def get_input_file(target_date):
+    """生成输入文件名"""
+    return f'Best_Pick_{target_date}.csv'
 
 # ===========================================
 
@@ -201,8 +246,12 @@ def run_system():
     target_date, start_date = get_trade_context()
     if not target_date: return
 
-    df_pool = load_candidate_pool(INPUT_FILE)
-    if df_pool.empty: return
+    # 动态生成输入文件名
+    input_file = get_input_file(target_date)
+    df_pool = load_candidate_pool(input_file)
+    if df_pool.empty:
+        print(f"[错误] 找不到输入文件: {input_file}")
+        return
 
     stock_list = df_pool['ts_code'].tolist()
     print(f"[1] 候选池: {len(stock_list)} 只")
@@ -270,15 +319,15 @@ def run_system():
     # 评分与换手率双轨制
     is_wash = df_final['strategy'].str.contains("洗盘")
 
-    # 分数线
-    cond_score_normal = (df_final['New_Score'] >= 55) & (~is_wash)
-    cond_score_wash = (df_final['New_Score'] >= 45) & (is_wash)
+    # 分数线（使用配置文件中的参数）
+    cond_score_normal = (df_final['New_Score'] >= SCORE_THRESHOLD_NORMAL) & (~is_wash)
+    cond_score_wash = (df_final['New_Score'] >= SCORE_THRESHOLD_WASH) & (is_wash)
     cond_score = cond_score_normal | cond_score_wash
 
-    # 换手率 (如果有数据)
+    # 换手率 (如果有数据，使用配置文件中的参数)
     if 'turnover_rate' in df_final.columns and df_final['turnover_rate'].max() > 0:
-        cond_to_normal = (df_final['turnover_rate'] > 1.5) & (~is_wash)
-        cond_to_wash = (df_final['turnover_rate'] > 0.6) & (is_wash)
+        cond_to_normal = (df_final['turnover_rate'] > TURNOVER_THRESHOLD_NORMAL) & (~is_wash)
+        cond_to_wash = (df_final['turnover_rate'] > TURNOVER_THRESHOLD_WASH) & (is_wash)
         cond_to = cond_to_normal | cond_to_wash
     else:
         cond_to = True
@@ -300,7 +349,7 @@ def run_system():
     df_attack = df_pass[df_pass['strategy'].str.contains("强攻")].copy()
     if not df_attack.empty:
         df_attack = df_attack.sort_values(by=['New_Score', 'pct_chg'], ascending=[False, False])
-        top_attack = df_attack.head(5) # 取前5备选
+        top_attack = df_attack.head(TOP_N_PER_STRATEGY) # 取前N备选
         final_picks.append(top_attack)
         print(f"    ★低位强攻: 入围 {len(df_attack)} -> 精选 {len(top_attack)}")
 
@@ -313,7 +362,7 @@ def run_system():
         # 洗盘股：分数高说明位置好、支撑强；量比低说明洗得干净
         # 这里我们简单按总分排序
         df_wash = df_wash.sort_values(by=['New_Score'], ascending=False)
-        top_wash = df_wash.head(5)
+        top_wash = df_wash.head(TOP_N_PER_STRATEGY)
         final_picks.append(top_wash)
         print(f"    ☆缩量洗盘: 入围 {len(df_wash)} -> 精选 {len(top_wash)}")
 
@@ -322,7 +371,7 @@ def run_system():
     df_ladder = df_pass[df_pass['strategy'].str.contains("梯量")].copy()
     if not df_ladder.empty:
         df_ladder = df_ladder.sort_values(by=['New_Score'], ascending=False)
-        top_ladder = df_ladder.head(5)
+        top_ladder = df_ladder.head(TOP_N_PER_STRATEGY)
         final_picks.append(top_ladder)
         print(f"    ▲梯量上行: 入围 {len(df_ladder)} -> 精选 {len(top_ladder)}")
 

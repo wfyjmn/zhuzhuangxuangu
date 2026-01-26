@@ -1,0 +1,34 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-01-23",
+  "params": {
+    "first_round": {
+      "HIGH_RISK_POS": 0.8,
+      "STRONG_CHG_PCT": 2.5,
+      "YEAR_WINDOW": 250,
+      "BATCH_SIZE": 50,
+      "REQUEST_INTERVAL": 0.3,
+      "enabled": true
+    },
+    "second_round": {
+      "SCORE_THRESHOLD_NORMAL": 55,
+      "SCORE_THRESHOLD_WASH": 45,
+      "TURNOVER_THRESHOLD_NORMAL": 1.5,
+      "TURNOVER_THRESHOLD_WASH": 0.6,
+      "TOP_N_PER_STRATEGY": 5,
+      "enabled": true
+    },
+    "validation": {
+      "TRACK_DAYS": [1, 3, 5],
+      "MAX_POSITION_PER_STOCK": 10,
+      "STOP_LOSS_RATIO": -0.08,
+      "MAX_DRAWDOWN": -0.15,
+      "enabled": true
+    },
+    "optimization": {
+      "MIN_RECORDS": 30,
+      "OPTIMIZATION_FREQUENCY": "weekly",
+      "enabled": false
+    }
+  }
+}

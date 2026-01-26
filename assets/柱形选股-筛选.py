@@ -2,6 +2,7 @@
 """
 第一轮筛选：智能精选 (宽进严出版)
 修复：放宽缩量洗盘的准入门槛，解决"源头无水"的问题
+更新：支持从配置文件读取参数
 """
 
 import tushare as ts
@@ -9,19 +10,53 @@ import pandas as pd
 import numpy as np
 import time
 import datetime
+import json
+import os
 from tqdm import tqdm
 
 # ================= 用户配置区域 =================
 MY_TOKEN = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
 
-# 策略阈值
-YEAR_WINDOW = 250
-BATCH_SIZE = 50
-REQUEST_INTERVAL = 0.3
+# 参数配置文件
+PARAMS_FILE = 'strategy_params.json'
 
-# [关键] 严选阈值 (此处稍微放宽，把过滤留给第二轮)
-HIGH_RISK_POS = 0.8  # 放宽到 0.8，防止漏掉强势突破的票
-STRONG_CHG_PCT = 2.5  # 强攻：涨幅 > 2.5% 即可纳入观察
+# 默认参数（如果配置文件不存在时使用）
+DEFAULT_PARAMS = {
+    'YEAR_WINDOW': 250,
+    'BATCH_SIZE': 50,
+    'REQUEST_INTERVAL': 0.3,
+    'HIGH_RISK_POS': 0.8,
+    'STRONG_CHG_PCT': 2.5
+}
+
+# 从配置文件加载参数
+def load_params():
+    """加载参数配置"""
+    if os.path.exists(PARAMS_FILE):
+        try:
+            with open(PARAMS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                first_round = data.get('params', {}).get('first_round', {})
+                return {
+                    'YEAR_WINDOW': first_round.get('YEAR_WINDOW', 250),
+                    'BATCH_SIZE': first_round.get('BATCH_SIZE', 50),
+                    'REQUEST_INTERVAL': first_round.get('REQUEST_INTERVAL', 0.3),
+                    'HIGH_RISK_POS': first_round.get('HIGH_RISK_POS', 0.8),
+                    'STRONG_CHG_PCT': first_round.get('STRONG_CHG_PCT', 2.5)
+                }
+        except Exception as e:
+            print(f"[警告] 加载参数配置失败，使用默认参数: {e}")
+    return DEFAULT_PARAMS
+
+# 加载参数
+PARAMS = load_params()
+YEAR_WINDOW = PARAMS['YEAR_WINDOW']
+BATCH_SIZE = PARAMS['BATCH_SIZE']
+REQUEST_INTERVAL = PARAMS['REQUEST_INTERVAL']
+HIGH_RISK_POS = PARAMS['HIGH_RISK_POS']
+STRONG_CHG_PCT = PARAMS['STRONG_CHG_PCT']
+
+print(f"[系统] 加载参数: HIGH_RISK_POS={HIGH_RISK_POS}, STRONG_CHG_PCT={STRONG_CHG_PCT}")
 # ==============================================
 
 ts.set_token(MY_TOKEN)
