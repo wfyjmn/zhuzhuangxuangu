@@ -1,0 +1,435 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A股模型训练报告</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            padding: 30px;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        
+        .summary-score {
+            text-align: center;
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .summary-grade {
+            text-align: center;
+            font-size: 24px;
+            padding: 5px 20px;
+            background: white;
+            color: #28a745;
+            border-radius: 20px;
+            display: inline-block;
+            margin: 0 auto 20px;
+        }
+        
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-item {
+            background: rgba(255,255,255,0.2);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+        }
+        
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+        
+        .metric-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .metric-name {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .metric-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .metric-status {
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        .status-good {
+            color: #28a745;
+        }
+        
+        .status-warning {
+            color: #ffc107;
+        }
+        
+        .status-bad {
+            color: #dc3545;
+        }
+        
+        .param-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        
+        .param-table th, .param-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .param-table th {
+            background: #667eea;
+            color: white;
+        }
+        
+        .param-table tr:hover {
+            background: #f5f5f5;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .alert-warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        
+        .alert-danger {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .image-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .image-container img {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .image-caption {
+            font-size: 14px;
+            color: #666;
+            margin-top: 10px;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 12px;
+            border-top: 1px solid #ddd;
+            margin-top: 30px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .badge-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .badge-warning {
+            background: #ffc107;
+            color: #333;
+        }
+        
+        .badge-danger {
+            background: #dc3545;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📈 A股模型训练报告</h1>
+        <p class="subtitle">训练时间: 2026-01-03 22:02:18</p>
+        
+        <!-- 综合评估 -->
+        <div class="summary-card">
+            <div class="summary-score">综合得分: 0.9988</div>
+            <div class="summary-grade">A (优秀)</div>
+            <div class="summary-stats">
+                <div class="stat-item">
+                    <div class="stat-value">1.0000</div>
+                    <div class="stat-label">AUC</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">0.9980</div>
+                    <div class="stat-label">准确率</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">0.9962</div>
+                    <div class="stat-label">精确率</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">1.0000</div>
+                    <div class="stat-label">召回率</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 模型性能指标 -->
+        <div class="section">
+            <h2 class="section-title">📊 模型性能指标</h2>
+            <div class="metrics-grid">
+                
+        <div class="metric-card">
+            <div class="metric-name">AUC</div>
+            <div class="metric-value">1.0000</div>
+            <div class="metric-status status-good">✓ 优秀</div>
+        </div>
+        
+                
+        <div class="metric-card">
+            <div class="metric-name">准确率</div>
+            <div class="metric-value">0.9980</div>
+            <div class="metric-status status-good">✓ 优秀</div>
+        </div>
+        
+                
+        <div class="metric-card">
+            <div class="metric-name">精确率</div>
+            <div class="metric-value">0.9962</div>
+            <div class="metric-status status-good">✓ 优秀</div>
+        </div>
+        
+                
+        <div class="metric-card">
+            <div class="metric-name">召回率</div>
+            <div class="metric-value">1.0000</div>
+            <div class="metric-status status-good">✓ 优秀</div>
+        </div>
+        
+                
+        <div class="metric-card">
+            <div class="metric-name">F1分数</div>
+            <div class="metric-value">0.9981</div>
+            <div class="metric-status status-good">✓ 优秀</div>
+        </div>
+        
+                
+        <div class="metric-card">
+            <div class="metric-name">夏普比率</div>
+            <div class="metric-value">15.8860</div>
+            <div class="metric-status status-good">✓ 优秀</div>
+        </div>
+        
+            </div>
+        </div>
+        
+        <!-- 过拟合检测 -->
+        <div class="section">
+            <h2 class="section-title">🔍 过拟合检测</h2>
+            <div class="alert alert-success">
+                <strong>状态:</strong> ✅ 无过拟合<br>
+                <strong>严重程度:</strong> NONE
+            </div>
+            <div class="alert alert-success">✓ 暂无警告</div>
+        </div>
+        
+        <!-- 模型参数 -->
+        <div class="section">
+            <h2 class="section-title">⚙️ 模型参数配置</h2>
+            <table class="param-table">
+                <tr>
+                    <th>参数名</th>
+                    <th>当前值</th>
+                    <th>参数分析</th>
+                </tr>
+                <tr>
+                    <td>n_estimators (树的数量)</td>
+                    <td>500</td>
+                    <td>⚠️ 建议范围: 100-300</td>
+                </tr>
+                <tr>
+                    <td>max_depth (树的深度)</td>
+                    <td>15</td>
+                    <td>⚠️ 建议范围: 5-8</td>
+                </tr>
+                <tr>
+                    <td>learning_rate (学习率)</td>
+                    <td>0.01</td>
+                    <td>⚠️ 建议范围: 0.05-0.2</td>
+                </tr>
+                <tr>
+                    <td>subsample</td>
+                    <td>0.5</td>
+                    <td>⚠️ 建议范围: 0.7-0.9</td>
+                </tr>
+                <tr>
+                    <td>colsample_bytree</td>
+                    <td>0.5</td>
+                    <td>⚠️ 建议范围: 0.7-0.9</td>
+                </tr>
+                <tr>
+                    <td>reg_alpha (L1正则化)</td>
+                    <td>N/A</td>
+                    <td>建议: 如出现过拟合可适当增加</td>
+                </tr>
+                <tr>
+                    <td>reg_lambda (L2正则化)</td>
+                    <td>N/A</td>
+                    <td>建议: 如出现过拟合可适当增加</td>
+                </tr>
+            </table>
+            
+            <div class="alert alert-info"><strong>参数建议:</strong><ul><li>树的数量(500)在合理范围内</li><li>学习率(0.01)在合理范围内</li><li>当前未使用正则化，如果出现过拟合，可以适当增加 reg_alpha 或 reg_lambda</li></ul></div>
+        </div>
+        
+        <!-- 可视化图表 -->
+        <div class="section">
+            <h2 class="section-title">📈 可视化图表</h2>
+            
+                <div class="image-container">
+                    <img src="roc_curve_20260103_220214.png" alt="ROC曲线">
+                    <div class="image-caption">ROC曲线</div>
+                </div>
+                
+                <div class="image-container">
+                    <img src="confusion_matrix_20260103_220215.png" alt="混淆矩阵">
+                    <div class="image-caption">混淆矩阵</div>
+                </div>
+                
+                <div class="image-container">
+                    <img src="pr_curve_20260103_220215.png" alt="精确率-召回率曲线">
+                    <div class="image-caption">精确率-召回率曲线</div>
+                </div>
+                
+                <div class="image-container">
+                    <img src="prediction_distribution_20260103_220216.png" alt="预测概率分布">
+                    <div class="image-caption">预测概率分布</div>
+                </div>
+                
+                <div class="image-container">
+                    <img src="feature_importance_20260103_220216.png" alt="特征重要性">
+                    <div class="image-caption">特征重要性</div>
+                </div>
+                
+                <div class="image-container">
+                    <img src="learning_curve_20260103_220217.png" alt="学习曲线">
+                    <div class="image-caption">学习曲线</div>
+                </div>
+                
+                <div class="image-container">
+                    <img src="summary_dashboard_20260103_220217.png" alt="总结仪表盘">
+                    <div class="image-caption">总结仪表盘</div>
+                </div>
+                
+        </div>
+        
+        <!-- 优化建议 -->
+        <div class="section">
+            <h2 class="section-title">💡 优化建议</h2>
+            <ul><li>✓ 模型表现良好，建议：</li><li>- 持续监控模型在实盘中的表现</li><li>- 定期重新训练模型以适应市场变化</li><li>- 关注行业分布的均衡性</li></ul>
+        </div>
+        
+        <div class="footer">
+            <p>此报告由 A股模型实盘对比系统 自动生成</p>
+            <p>生成时间: 2026-01-03 22:02:18</p>
+        </div>
+    </div>
+</body>
+</html>

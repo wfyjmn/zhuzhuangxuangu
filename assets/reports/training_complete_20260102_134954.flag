@@ -1,0 +1,55 @@
+{
+  "status": "completed",
+  "timestamp": "2026-01-02T13:49:54.041666",
+  "metrics": {
+    "accuracy": 0.554179104477612,
+    "precision": 0.5314379442318207,
+    "recall": 0.8751500600240096,
+    "f1": 0.6612994670597574,
+    "auc": 0.6264234761600602,
+    "train_auc": 0.9531324334079841,
+    "val_auc": 0.6264234761600602,
+    "confusion_matrix": [
+      [
+        797,
+        2571
+      ],
+      [
+        416,
+        2916
+      ]
+    ],
+    "true_positive": 2916,
+    "false_positive": 2571,
+    "false_negative": 416,
+    "true_negative": 797,
+    "cumulative_return": 0.17503001200480192,
+    "annual_return": 0.2275390156062425,
+    "sharpe_ratio": 26.254501800720288,
+    "max_drawdown": -0.02,
+    "win_rate": 0.554179104477612,
+    "false_positive_rate": 0.7633610451306413,
+    "false_negative_rate": 0.12484993997599039
+  },
+  "parameters": {
+    "objective": "binary:logistic",
+    "eval_metric": "auc",
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 1,
+    "gamma": 0,
+    "reg_alpha": 0,
+    "reg_lambda": 1,
+    "scale_pos_weight": 1
+  },
+  "overfitting": {
+    "is_overfitting": true,
+    "warnings": [
+      "\u8bad\u7ec3\u96c6\u548c\u9a8c\u8bc1\u96c6AUC\u5dee\u5f02\u8fc7\u5927 (0.3267)"
+    ],
+    "severity": "severe"
+  },
+  "training_epochs": 1
+}

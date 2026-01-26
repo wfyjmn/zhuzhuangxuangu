@@ -1,0 +1,118 @@
+{
+  "model_name": "高涨幅精准突击模型",
+  "version": "1.0",
+  "target_return": 0.08,
+  "prediction_horizon": [
+    3,
+    4,
+    5
+  ],
+  "optimal_threshold": 0.46999999999999986,
+  "target_precision": 0.7,
+  "training_date": "2026-01-05 02:14:13",
+  "metrics": {
+    "train": {
+      "precision": 1.0,
+      "recall": 0.9926315789473684,
+      "f1": 0.9963021658742737,
+      "auc": 0.9999982927222543,
+      "confusion_matrix": [
+        [
+          5549,
+          0
+        ],
+        [
+          7,
+          943
+        ]
+      ],
+      "hit_rate": 1.0,
+      "predicted_positive": 943,
+      "true_positive": 943
+    },
+    "val": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "auc": 1.0,
+      "confusion_matrix": [
+        [
+          1236,
+          0
+        ],
+        [
+          0,
+          263
+        ]
+      ],
+      "hit_rate": 1.0,
+      "predicted_positive": 263,
+      "true_positive": 263
+    },
+    "test": {
+      "precision": 1.0,
+      "recall": 0.9896551724137931,
+      "f1": 0.9948006932409013,
+      "auc": 1.0,
+      "confusion_matrix": [
+        [
+          1709,
+          0
+        ],
+        [
+          3,
+          287
+        ]
+      ],
+      "hit_rate": 1.0,
+      "predicted_positive": 287,
+      "true_positive": 287
+    }
+  },
+  "config": {
+    "objective": "binary:logistic",
+    "base_score": null,
+    "booster": null,
+    "callbacks": null,
+    "colsample_bylevel": null,
+    "colsample_bynode": null,
+    "colsample_bytree": 0.7,
+    "device": null,
+    "early_stopping_rounds": 50,
+    "enable_categorical": false,
+    "eval_metric": [
+      "auc",
+      "logloss",
+      "error"
+    ],
+    "feature_types": null,
+    "feature_weights": null,
+    "gamma": 1,
+    "grow_policy": null,
+    "importance_type": null,
+    "interaction_constraints": null,
+    "learning_rate": 0.01,
+    "max_bin": null,
+    "max_cat_threshold": null,
+    "max_cat_to_onehot": null,
+    "max_delta_step": null,
+    "max_depth": 4,
+    "max_leaves": null,
+    "min_child_weight": 10,
+    "missing": NaN,
+    "monotone_constraints": null,
+    "multi_strategy": null,
+    "n_estimators": 1000,
+    "n_jobs": null,
+    "num_parallel_tree": null,
+    "random_state": 42,
+    "reg_alpha": 1,
+    "reg_lambda": 5,
+    "sampling_method": null,
+    "scale_pos_weight": 2,
+    "subsample": 0.7,
+    "tree_method": null,
+    "validate_parameters": null,
+    "verbosity": null
+  }
+}

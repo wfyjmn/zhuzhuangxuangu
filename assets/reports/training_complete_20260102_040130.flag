@@ -1,0 +1,39 @@
+{
+  "status": "completed",
+  "timestamp": "2026-01-02T04:01:30.094664",
+  "metrics": {
+    "auc": 1.0,
+    "accuracy": 0.998,
+    "precision": 0.9961538461538462,
+    "recall": 1.0,
+    "f1": 0.9980732177263969,
+    "train_auc": 1.0,
+    "val_auc": 1.0,
+    "true_positive": 259,
+    "false_positive": 1,
+    "false_negative": 0,
+    "true_negative": 240,
+    "cumulative_return": 2.58,
+    "annual_return": 1.3003200000000001,
+    "sharpe_ratio": 15.886014909306951,
+    "max_drawdown": -0.010000000000000009,
+    "win_rate": 0.9961538461538462,
+    "false_positive_rate": 0.004149377593360996,
+    "false_negative_rate": 0.0
+  },
+  "parameters": {
+    "n_estimators": 500,
+    "max_depth": 15,
+    "learning_rate": 0.01,
+    "subsample": 0.5,
+    "colsample_bytree": 0.5,
+    "objective": "binary:logistic",
+    "eval_metric": "auc"
+  },
+  "overfitting": {
+    "is_overfitting": false,
+    "warnings": [],
+    "severity": "none"
+  },
+  "training_epochs": 1
+}

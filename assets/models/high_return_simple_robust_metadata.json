@@ -1,0 +1,17 @@
+{
+  "model_type": "XGBoost_Simple_Robust",
+  "feature_count": 11,
+  "data_description": "50只股票，简化特征（12个）",
+  "metrics": {
+    "train_precision": 0.0,
+    "train_auc": 0.600985289993031,
+    "val_precision": 0.0,
+    "val_auc": 0.4962221541220774,
+    "test_precision": 0.0,
+    "test_recall": 0.0,
+    "test_f1": 0.0,
+    "test_auc": 0.5071796720508868
+  },
+  "overfitting_gap": 0.09380561794214426,
+  "training_date": "2026-01-05 02:39:22"
+}

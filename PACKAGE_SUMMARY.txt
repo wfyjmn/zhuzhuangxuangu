@@ -1,0 +1,124 @@
+====================================
+A股模型实盘对比系统 - 打包摘要
+====================================
+
+📦 压缩包信息：
+- 文件名：a_stock_model_project.tar.gz
+- 格式：tar.gz
+- 大小：29MB
+- 文件数量：282个文件
+- 打包时间：2026-01-02 14:12
+
+📍 下载位置：
+/tmp/a_stock_model_project.tar.gz
+
+📋 已排除的文件（安全考虑）：
+✓ .env (包含Tushare Token敏感信息)
+✓ .git/ (版本控制目录)
+✓ __pycache__/ (Python编译缓存)
+✓ *.pyc (Python字节码)
+✓ node_modules/ (Node依赖)
+✓ dist/ (构建输出)
+✓ .DS_Store (Mac系统文件)
+✓ *.swp (Vim交换文件)
+✓ .venv/ (虚拟环境)
+✓ vendor/ (第三方库)
+✓ *.egg-info/ (Python包信息)
+
+📦 包含的核心内容：
+
+【源代码】(src/)
+- stock_system/     : 核心系统模块（预测、分析、监控等）
+- utils/            : 工具类（日志、文件、消息、辅助函数）
+- storage/          : 存储（内存、数据库、对象存储）
+- graphs/           : 图相关模块
+- main.py           : 主入口
+
+【脚本】(scripts/)
+- train_with_real_data.py   : 使用真实Tushare数据训练
+- train_with_mock_data.py   : 使用模拟数据训练
+- generate_mock_data.py     : 生成模拟数据
+- setup.sh                  : 环境设置脚本
+- local_run.sh / http_run.sh: 运行脚本
+- load_env.py / load_env.sh : 环境变量加载
+
+【资源】(assets/)
+- data/           : 训练数据和测试数据
+- models/         : 已训练的模型文件（含最佳模型）
+- reports/        : 训练报告和可视化图表（HTML/PNG）
+- cache/          : 数据缓存（行情、预测、日志）
+- logs/           : 系统运行日志
+
+【配置】(config/)
+- model_config.json       : XGBoost模型配置
+- tushare_config.json     : Tushare API配置
+
+【文档】(docs/)
+- STOCK_SYSTEM_README.md  : 系统功能说明
+- VISUALIZATION_GUIDE.md  : 可视化功能指南
+- OPTIMIZATION_GUIDE.md   : 模型优化指南
+- ENV_CONFIG.md           : 环境配置说明
+
+【测试】
+- demo_system.py          : 演示程序
+- test_system.py          : 系统测试
+- test_visualization.py   : 可视化测试
+- test_performance.py     : 性能测试
+
+【文档】
+- README.md               : 项目简介
+- INSTALLATION_GUIDE.md   : 安装指南
+- PROJECT_STRUCTURE.md    : 项目结构说明
+
+💾 缓存数据：
+- market_cache/: 约130个市场数据缓存文件（.pkl格式）
+- logs/: 缓存日志记录
+- models/: 8个训练好的模型文件
+
+📊 训练报告（assets/reports/）：
+- training_report_latest.html : 最新HTML训练报告
+- training_complete_latest.flag : 训练完成标识
+- 多个可视化图表（PNG）：
+  * 特征重要性图
+  * 混淆矩阵
+  * ROC曲线
+  * PR曲线
+  * 学习曲线
+  * 预测分布
+  * 采样分布
+  * 概要仪表板
+
+🎯 训练成果：
+- 数据来源：真实 Tushare 数据
+- AUC：0.7045
+- 准确率：62.82%
+- 年化收益：20.84%
+- 夏普比率：24.05
+- 最大回撤：-2.00%
+- 训练模型：8个版本
+- 最佳模型：best_model.pkl
+
+🔧 技术栈：
+- Python 3.9.8
+- XGBoost
+- scikit-learn
+- pandas & numpy
+- tushare
+- matplotlib & seaborn
+- HTML报告生成
+
+⚙️ 环境依赖（requirements.txt）：
+所有依赖包已记录，包括：
+- xgboost
+- scikit-learn
+- pandas
+- numpy
+- tushare
+- matplotlib
+- seaborn
+- python-dotenv
+- 等其他依赖
+
+====================================
+使用说明请查看：DOWNLOAD_GUIDE.txt
+====================================

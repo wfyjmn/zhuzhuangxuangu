@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-01-03 22:38:37",
+  "summary": {
+    "strategy_philosophy": {
+      "conservative": "不犯错，控制风险",
+      "aggressive": "抓住机会，承担可控风险"
+    },
+    "key_changes": {
+      "recall_target": {
+        "before": "30% (保守型)",
+        "after": "70%+ (进攻型)",
+        "improvement": "提升133%+"
+      },
+      "annual_return_target": {
+        "before": "8%",
+        "after": "15-20%",
+        "improvement": "提升87.5-150%"
+      },
+      "max_drawdown_limit": {
+        "before": "5%",
+        "after": "5-8%",
+        "change": "稍微放宽"
+      }
+    }
+  },
+  "model_improvements": {
+    "sample_weighting": {
+      "conservative": "scale_pos_weight=1.0 (正负样本权重相同)",
+      "aggressive": "scale_pos_weight=2.0 (正样本权重翻倍)"
+    },
+    "feature_engineering": {
+      "conservative": "22个基础特征",
+      "aggressive": "15个进攻性特征 + 基础特征"
+    },
+    "model_complexity": {
+      "conservative": "max_depth=6, n_estimators=500",
+      "aggressive": "max_depth=8, n_estimators=800"
+    }
+  },
+  "trading_strategy": {
+    "threshold_adjustment": {
+      "conservative": "阈值0.7 (70%置信度才买入)",
+      "aggressive": "多级阈值: 0.3/0.4/0.6"
+    },
+    "position_sizing": {
+      "conservative": "固定仓位",
+      "aggressive": "动态仓位: 20%/50%/80%"
+    },
+    "stop_loss": {
+      "conservative": "固定止损",
+      "aggressive": "动态止损: 3%/5%/8% + 移动止损"
+    },
+    "take_profit": {
+      "conservative": "单一止盈",
+      "aggressive": "阶梯式止盈: 5%/10%/15%"
+    }
+  },
+  "risk_management": {
+    "conservative": "被动风险规避",
+    "aggressive": "主动风险控制: 波动率调整、行业分散、情绪监控"
+  }
+}

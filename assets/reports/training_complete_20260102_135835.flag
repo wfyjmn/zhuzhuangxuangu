@@ -1,0 +1,56 @@
+{
+  "status": "completed",
+  "timestamp": "2026-01-02T13:58:35.895266",
+  "data_source": "tushare_real_data",
+  "metrics": {
+    "accuracy": 0.6282489740082079,
+    "precision": 0.5884161968221425,
+    "recall": 0.8016759776536313,
+    "f1": 0.6786875554241797,
+    "auc": 0.704538263663187,
+    "train_auc": 0.9941097355282194,
+    "val_auc": 0.704538263663187,
+    "confusion_matrix": [
+      [
+        689,
+        803
+      ],
+      [
+        284,
+        1148
+      ]
+    ],
+    "true_positive": 1148,
+    "false_positive": 803,
+    "false_negative": 284,
+    "true_negative": 689,
+    "cumulative_return": 0.16033519553072625,
+    "annual_return": 0.20843575418994414,
+    "sharpe_ratio": 24.05027932960894,
+    "max_drawdown": -0.02,
+    "win_rate": 0.6282489740082079,
+    "false_positive_rate": 0.5382037533512064,
+    "false_negative_rate": 0.19832402234636873
+  },
+  "parameters": {
+    "objective": "binary:logistic",
+    "eval_metric": "auc",
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 1,
+    "gamma": 0,
+    "reg_alpha": 0,
+    "reg_lambda": 1,
+    "scale_pos_weight": 1
+  },
+  "overfitting": {
+    "is_overfitting": true,
+    "warnings": [
+      "\u8bad\u7ec3\u96c6\u548c\u9a8c\u8bc1\u96c6AUC\u5dee\u5f02\u8fc7\u5927 (0.2896)"
+    ],
+    "severity": "severe"
+  },
+  "training_epochs": 1
+}

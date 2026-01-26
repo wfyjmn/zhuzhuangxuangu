@@ -1,0 +1,8 @@
+{
+  "create_time": "2026-01-01 06:24:39",
+  "best_score": 0.75,
+  "params": {
+    "objective": "binary:logistic",
+    "max_depth": 3
+  }
+}

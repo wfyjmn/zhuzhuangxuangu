@@ -1,0 +1,95 @@
+{
+  "model_name": "auto_tuned",
+  "training_date": "2026-01-05 04:09:49",
+  "feature_count": 74,
+  "best_params": {
+    "learning_rate": 0.0397865581443158,
+    "max_depth": 7,
+    "min_child_weight": 8,
+    "subsample": 0.9029169388606798,
+    "colsample_bytree": 0.9939954201031975,
+    "reg_lambda": 4.825858133950407,
+    "reg_alpha": 1.3286383098185897,
+    "gamma": 4.389323908724623,
+    "scale_pos_weight": 1.0032670911387882,
+    "n_estimators": 1149
+  },
+  "decision_threshold": 0.5200000000000002,
+  "metrics": {
+    "accuracy": 0.8448176826045999,
+    "precision": 0.3486238532110092,
+    "recall": 0.005653920547537569,
+    "f1": 0.011127379209370425,
+    "auc": 0.5420165186904276,
+    "n_predictions": 109,
+    "n_positive_samples": 6721
+  },
+  "config": {
+    "data": {
+      "start_date": "2020-01-01",
+      "end_date": "2026-01-05",
+      "min_return_threshold": 0.08,
+      "prediction_days": [
+        3,
+        4,
+        5
+      ],
+      "n_stocks": 150
+    },
+    "optuna": {
+      "n_trials": 50,
+      "timeout": 7200,
+      "direction": "maximize",
+      "metric": "precision",
+      "cv_folds": 3,
+      "early_stopping_rounds": 50
+    },
+    "threshold": {
+      "target_precision": 0.7,
+      "threshold_range": [
+        0.3,
+        0.6
+      ],
+      "threshold_step": 0.01
+    },
+    "strategy_name": "精确率优先自动化参数调优",
+    "core_philosophy": "宁可错过，绝不犯错",
+    "version": "1.0",
+    "optimization_goals": {
+      "precision": {
+        "target": 0.7,
+        "weight": 1.0,
+        "description": "精确率>70%，确保预测的股票有高上涨概率"
+      },
+      "recall": {
+        "target": 0.5,
+        "weight": 0.5,
+        "description": "召回率>50%，在保证精确率的前提下尽可能抓住机会"
+      },
+      "auc": {
+        "target": 0.75,
+        "weight": 0.3,
+        "description": "AUC>0.75，模型整体判别能力良好"
+      }
+    },
+    "feature_weights": {
+      "capital_strength": {
+        "weight": 0.4,
+        "description": "核心维度1：资金强度"
+      },
+      "market_sentiment": {
+        "weight": 0.35,
+        "description": "核心维度2：市场情绪"
+      },
+      "technical_momentum": {
+        "weight": 0.25,
+        "description": "核心维度3：技术动量"
+      }
+    }
+  },
+  "optimization": {
+    "n_trials": 50,
+    "best_score": 0.5333333333333333,
+    "metric": "precision"
+  }
+}

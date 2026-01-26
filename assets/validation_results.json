@@ -1,0 +1,253 @@
+{
+  "data_stats": {
+    "total_days": 977,
+    "target_positive_rate": 0.5138178096212896,
+    "price_range": [
+      75.02819147880297,
+      174.53401953744407
+    ]
+  },
+  "feature_thresholds": {
+    "main_capital_inflow_ratio": {
+      "quantile_threshold": 3.2417879059741375,
+      "ig_threshold": 6.282210826873779,
+      "model_threshold": -37.75602255835275,
+      "optimal": -8.145428357054035,
+      "method": "ensemble"
+    },
+    "large_order_ratio": {
+      "quantile_threshold": 19.06750388078867,
+      "ig_threshold": 10.15836763381958,
+      "model_threshold": 5.0,
+      "optimal": 12.174511842461342,
+      "method": "ensemble"
+    },
+    "capital_persistence": {
+      "quantile_threshold": 0.6,
+      "ig_threshold": 0.7000000178813934,
+      "model_threshold": 0.0,
+      "optimal": 0.450000005364418,
+      "method": "ensemble"
+    },
+    "northbound_flow_ratio": {
+      "quantile_threshold": 1.6340767882871128,
+      "ig_threshold": 6.432743787765503,
+      "model_threshold": -17.60434527695372,
+      "optimal": -2.69784973144162,
+      "method": "ensemble"
+    },
+    "capital_momentum": {
+      "quantile_threshold": 0.7707059427501483,
+      "ig_threshold": 32.185885429382324,
+      "model_threshold": -297.4770449282244,
+      "optimal": -79.27906547255256,
+      "method": "ensemble"
+    },
+    "sector_heat_index": {
+      "quantile_threshold": 63.5,
+      "ig_threshold": 54.5,
+      "model_threshold": 40.0,
+      "optimal": 53.75,
+      "method": "ensemble"
+    },
+    "stock_sentiment_score": {
+      "quantile_threshold": 30.0,
+      "ig_threshold": 30.47898292541504,
+      "model_threshold": 0.5,
+      "optimal": 21.29369487762451,
+      "method": "ensemble"
+    },
+    "market_breadth": {
+      "quantile_threshold": 0.6387550869817928,
+      "ig_threshold": 0.7419356405735016,
+      "model_threshold": 0.400160617610136,
+      "optimal": 0.5981309122478085,
+      "method": "ensemble"
+    },
+    "sentiment_cycle": {
+      "quantile_threshold": 0.6783708863803598,
+      "ig_threshold": 6.242531890165992e-05,
+      "model_threshold": 0.0002655597546687753,
+      "optimal": 0.2714467500742151,
+      "method": "ensemble"
+    },
+    "rsi_6": {
+      "quantile_threshold": 60.97087913360589,
+      "ig_threshold": 3.774126648902893,
+      "model_threshold": 0.0,
+      "optimal": 25.520589648113223,
+      "method": "ensemble"
+    },
+    "rsi_12": {
+      "quantile_threshold": 56.64253709448448,
+      "ig_threshold": 76.16016006469727,
+      "model_threshold": 7.463695715969138,
+      "optimal": 47.74417157199371,
+      "method": "ensemble"
+    },
+    "rsi_14": {
+      "quantile_threshold": 56.52452285383218,
+      "ig_threshold": 14.085166931152344,
+      "model_threshold": 9.51166995838561,
+      "optimal": 29.68886020839426,
+      "method": "ensemble"
+    },
+    "rsi_24": {
+      "quantile_threshold": 55.9512343476907,
+      "ig_threshold": 79.9676742553711,
+      "model_threshold": 22.562596120799114,
+      "optimal": 53.13957485192734,
+      "method": "ensemble"
+    },
+    "volume_ratio": {
+      "quantile_threshold": 1.024281324301075,
+      "ig_threshold": 1.2710248231887817,
+      "model_threshold": 0.7508350723111297,
+      "optimal": 1.0162704983704034,
+      "method": "ensemble"
+    },
+    "attack_pattern": {
+      "quantile_threshold": 0.0,
+      "ig_threshold": 0.5,
+      "model_threshold": 0.5,
+      "optimal": 0.3,
+      "method": "ensemble"
+    }
+  },
+  "rsi_optimization": {
+    "RSI_6": {
+      "optimal_threshold": "30",
+      "best_f1": 0.6268656716417911,
+      "precision_at_threshold": 0.5175097276264592,
+      "recall_at_threshold": 0.7948207171314741,
+      "period": 6
+    },
+    "RSI_12": {
+      "optimal_threshold": "30",
+      "best_f1": 0.650619985412108,
+      "precision_at_threshold": 0.5132336018411968,
+      "recall_at_threshold": 0.8884462151394422,
+      "period": 12
+    },
+    "RSI_14": {
+      "optimal_threshold": "30",
+      "best_f1": 0.6545981173062998,
+      "precision_at_threshold": 0.5142207053469852,
+      "recall_at_threshold": 0.900398406374502,
+      "period": 14
+    },
+    "RSI_24": {
+      "optimal_threshold": "30",
+      "best_f1": 0.6694915254237288,
+      "precision_at_threshold": 0.5185995623632386,
+      "recall_at_threshold": 0.9442231075697212,
+      "period": 24
+    },
+    "combined": {
+      "weights": {
+        "RSI_6": 0.2409561897723487,
+        "RSI_12": 0.25008693212383465,
+        "RSI_14": 0.25161605637963547,
+        "RSI_24": 0.2573408217241811
+      },
+      "method": "f1_weighted",
+      "description": "基于各周期F1分数的加权组合"
+    }
+  },
+  "capital_optimization": {
+    "main_capital_inflow_ratio": {
+      "optimal_threshold": 0.5,
+      "performance": {},
+      "threshold_methods": {
+        "rolling_quantiles": {
+          "q80": "2021-01-24         NaN\n2021-01-25         NaN\n2021-01-26         NaN\n2021-01-27         NaN\n2021-01-28         NaN\n                ...   \n2023-09-23    9.636885\n2023-09-24    9.636885\n2023-09-25    9.636885\n2023-09-26    9.636885\n2023-09-27    9.636885\nFreq: D, Name: main_capital_inflow_ratio, Length: 977, dtype: float64",
+          "q85": "2021-01-24          NaN\n2021-01-25          NaN\n2021-01-26          NaN\n2021-01-27          NaN\n2021-01-28          NaN\n                ...    \n2023-09-23    12.812211\n2023-09-24    12.812211\n2023-09-25    12.812211\n2023-09-26    12.812211\n2023-09-27    12.812211\nFreq: D, Name: main_capital_inflow_ratio, Length: 977, dtype: float64",
+          "q90": "2021-01-24         NaN\n2021-01-25         NaN\n2021-01-26         NaN\n2021-01-27         NaN\n2021-01-28         NaN\n                ...   \n2023-09-23    14.90478\n2023-09-24    14.90478\n2023-09-25    14.90478\n2023-09-26    14.90478\n2023-09-27    14.90478\nFreq: D, Name: main_capital_inflow_ratio, Length: 977, dtype: float64",
+          "recommended": "2021-01-24          NaN\n2021-01-25          NaN\n2021-01-26          NaN\n2021-01-27          NaN\n2021-01-28          NaN\n                ...    \n2023-09-23    12.812211\n2023-09-24    12.812211\n2023-09-25    12.812211\n2023-09-26    12.812211\n2023-09-27    12.812211\nFreq: D, Name: main_capital_inflow_ratio, Length: 977, dtype: float64"
+        },
+        "zscore": {
+          "threshold": "2021-01-24     0.000000\n2021-01-25     0.000000\n2021-01-26     0.000000\n2021-01-27     0.000000\n2021-01-28     0.000000\n                ...    \n2023-09-23    11.594605\n2023-09-24    11.798340\n2023-09-25    11.717898\n2023-09-26    11.850450\n2023-09-27    11.909992\nFreq: D, Name: main_capital_inflow_ratio, Length: 977, dtype: float64",
+          "method": "zscore",
+          "multiplier": 1.0
+        },
+        "recommended": 12.812211265518165
+      }
+    },
+    "large_order_ratio": {
+      "optimal_threshold": 0.5,
+      "performance": {},
+      "threshold_methods": {
+        "rolling_quantiles": {
+          "q80": "2021-01-24          NaN\n2021-01-25          NaN\n2021-01-26          NaN\n2021-01-27          NaN\n2021-01-28          NaN\n                ...    \n2023-09-23    32.025017\n2023-09-24    32.025017\n2023-09-25    32.025017\n2023-09-26    29.968136\n2023-09-27    29.968136\nFreq: D, Name: large_order_ratio, Length: 977, dtype: float64",
+          "q85": "2021-01-24          NaN\n2021-01-25          NaN\n2021-01-26          NaN\n2021-01-27          NaN\n2021-01-28          NaN\n                ...    \n2023-09-23    34.357490\n2023-09-24    34.357490\n2023-09-25    34.357490\n2023-09-26    32.868909\n2023-09-27    32.868909\nFreq: D, Name: large_order_ratio, Length: 977, dtype: float64",
+          "q90": "2021-01-24          NaN\n2021-01-25          NaN\n2021-01-26          NaN\n2021-01-27          NaN\n2021-01-28          NaN\n                ...    \n2023-09-23    39.208638\n2023-09-24    39.208638\n2023-09-25    39.208638\n2023-09-26    39.208638\n2023-09-27    39.208638\nFreq: D, Name: large_order_ratio, Length: 977, dtype: float64",
+          "recommended": "2021-01-24          NaN\n2021-01-25          NaN\n2021-01-26          NaN\n2021-01-27          NaN\n2021-01-28          NaN\n                ...    \n2023-09-23    34.357490\n2023-09-24    34.357490\n2023-09-25    34.357490\n2023-09-26    32.868909\n2023-09-27    32.868909\nFreq: D, Name: large_order_ratio, Length: 977, dtype: float64"
+        },
+        "zscore": {
+          "threshold": "2021-01-24     0.000000\n2021-01-25     0.000000\n2021-01-26     0.000000\n2021-01-27     0.000000\n2021-01-28     0.000000\n                ...    \n2023-09-23    31.064557\n2023-09-24    30.978292\n2023-09-25    31.226968\n2023-09-26    30.607962\n2023-09-27    30.588043\nFreq: D, Name: large_order_ratio, Length: 977, dtype: float64",
+          "method": "zscore",
+          "multiplier": 1.0
+        },
+        "recommended": 32.86890880608222
+      }
+    },
+    "capital_persistence": {
+      "optimal_threshold": 0.5,
+      "performance": {},
+      "threshold_methods": {
+        "rolling_quantiles": {
+          "q80": "2021-01-24    NaN\n2021-01-25    NaN\n2021-01-26    NaN\n2021-01-27    NaN\n2021-01-28    NaN\n             ... \n2023-09-23    0.8\n2023-09-24    0.8\n2023-09-25    0.8\n2023-09-26    0.8\n2023-09-27    0.8\nFreq: D, Name: capital_persistence, Length: 977, dtype: float64",
+          "q85": "2021-01-24    NaN\n2021-01-25    NaN\n2021-01-26    NaN\n2021-01-27    NaN\n2021-01-28    NaN\n             ... \n2023-09-23    0.8\n2023-09-24    0.8\n2023-09-25    0.8\n2023-09-26    0.8\n2023-09-27    0.8\nFreq: D, Name: capital_persistence, Length: 977, dtype: float64",
+          "q90": "2021-01-24    NaN\n2021-01-25    NaN\n2021-01-26    NaN\n2021-01-27    NaN\n2021-01-28    NaN\n             ... \n2023-09-23    0.8\n2023-09-24    0.8\n2023-09-25    0.8\n2023-09-26    0.8\n2023-09-27    0.8\nFreq: D, Name: capital_persistence, Length: 977, dtype: float64",
+          "recommended": "2021-01-24    NaN\n2021-01-25    NaN\n2021-01-26    NaN\n2021-01-27    NaN\n2021-01-28    NaN\n             ... \n2023-09-23    0.8\n2023-09-24    0.8\n2023-09-25    0.8\n2023-09-26    0.8\n2023-09-27    0.8\nFreq: D, Name: capital_persistence, Length: 977, dtype: float64"
+        },
+        "zscore": {
+          "threshold": "2021-01-24    0.000000\n2021-01-25    0.000000\n2021-01-26    0.000000\n2021-01-27    0.000000\n2021-01-28    0.000000\n                ...   \n2023-09-23    0.736700\n2023-09-24    0.736700\n2023-09-25    0.733296\n2023-09-26    0.736700\n2023-09-27    0.740525\nFreq: D, Name: capital_persistence, Length: 977, dtype: float64",
+          "method": "zscore",
+          "multiplier": 1.0
+        },
+        "recommended": 0.8
+      }
+    },
+    "northbound_flow_ratio": {
+      "optimal_threshold": 0.5,
+      "performance": {},
+      "threshold_methods": {
+        "rolling_quantiles": {
+          "q80": "2021-01-24         NaN\n2021-01-25         NaN\n2021-01-26         NaN\n2021-01-27         NaN\n2021-01-28         NaN\n                ...   \n2023-09-23    5.868511\n2023-09-24    5.502029\n2023-09-25    5.502029\n2023-09-26    5.868511\n2023-09-27    5.868511\nFreq: D, Name: northbound_flow_ratio, Length: 977, dtype: float64",
+          "q85": "2021-01-24         NaN\n2021-01-25         NaN\n2021-01-26         NaN\n2021-01-27         NaN\n2021-01-28         NaN\n                ...   \n2023-09-23    6.890222\n2023-09-24    6.673200\n2023-09-25    6.673200\n2023-09-26    7.226575\n2023-09-27    7.226575\nFreq: D, Name: northbound_flow_ratio, Length: 977, dtype: float64",
+          "q90": "2021-01-24         NaN\n2021-01-25         NaN\n2021-01-26         NaN\n2021-01-27         NaN\n2021-01-28         NaN\n                ...   \n2023-09-23    8.603625\n2023-09-24    8.603625\n2023-09-25    8.603625\n2023-09-26    8.728237\n2023-09-27    8.728237\nFreq: D, Name: northbound_flow_ratio, Length: 977, dtype: float64",
+          "recommended": "2021-01-24         NaN\n2021-01-25         NaN\n2021-01-26         NaN\n2021-01-27         NaN\n2021-01-28         NaN\n                ...   \n2023-09-23    6.890222\n2023-09-24    6.673200\n2023-09-25    6.673200\n2023-09-26    7.226575\n2023-09-27    7.226575\nFreq: D, Name: northbound_flow_ratio, Length: 977, dtype: float64"
+        },
+        "zscore": {
+          "threshold": "2021-01-24    0.000000\n2021-01-25    0.000000\n2021-01-26    0.000000\n2021-01-27    0.000000\n2021-01-28    0.000000\n                ...   \n2023-09-23    7.052574\n2023-09-24    6.846903\n2023-09-25    6.858923\n2023-09-26    7.134786\n2023-09-27    7.216185\nFreq: D, Name: northbound_flow_ratio, Length: 977, dtype: float64",
+          "method": "zscore",
+          "multiplier": 1.0
+        },
+        "recommended": 7.226575405083649
+      }
+    }
+  },
+  "model_performance": {
+    "baseline": {
+      "precision": 0.5151515151515151,
+      "recall": 0.2236842105263158,
+      "f1": 0.3119266055045872,
+      "accuracy": 0.4863013698630137
+    },
+    "optimized_val": {
+      "precision": 0.5244755244755245,
+      "recall": 0.9868421052631579,
+      "f1": 0.684931506849315,
+      "pred_positive": 143,
+      "pred_negative": 3
+    },
+    "optimized_test": {
+      "precision": 0.5586206896551724,
+      "recall": 0.9759036144578314,
+      "f1": 0.7105263157894737,
+      "accuracy": 0.5540540540540541
+    }
+  },
+  "optimal_threshold": 0.3
+}
