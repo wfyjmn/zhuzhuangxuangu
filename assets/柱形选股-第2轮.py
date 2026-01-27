@@ -9,6 +9,7 @@ DeepQuant Pro V2.1 - 终极修复版
 """
 
 import tushare as ts
+from config import TUSHARE_TOKEN
 import pandas as pd
 import numpy as np
 import time
@@ -20,7 +21,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ================= 配置区域 =================
-MY_TOKEN = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
+
 
 # 参数配置文件
 PARAMS_FILE = 'strategy_params.json'
@@ -70,7 +71,7 @@ def get_input_file(target_date):
 
 # ===========================================
 
-ts.set_token(MY_TOKEN)
+ts.set_token(TUSHARE_TOKEN)
 pro = ts.pro_api(timeout=30)
 
 

@@ -10,6 +10,7 @@
 """
 
 import tushare as ts
+from config import TUSHARE_TOKEN
 import pandas as pd
 import numpy as np
 import time
@@ -19,7 +20,7 @@ import json
 from tqdm import tqdm
 
 # ================= 配置区域 =================
-MY_TOKEN = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
+
 
 # 文件路径
 PARAMS_FILE = 'strategy_params.json'
@@ -30,7 +31,7 @@ PAPER_TRADING_FILE = 'paper_trading_records.csv'
 PICK_RESULT_PREFIX = 'DeepQuant_TopPicks_'
 # ===========================================
 
-ts.set_token(MY_TOKEN)
+ts.set_token(TUSHARE_TOKEN)
 pro = ts.pro_api(timeout=30)
 
 

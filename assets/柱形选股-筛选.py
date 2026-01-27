@@ -6,6 +6,7 @@
 """
 
 import tushare as ts
+from config import TUSHARE_TOKEN
 import pandas as pd
 import numpy as np
 import time
@@ -15,7 +16,7 @@ import os
 from tqdm import tqdm
 
 # ================= 用户配置区域 =================
-MY_TOKEN = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
+
 
 # 参数配置文件
 PARAMS_FILE = 'strategy_params.json'
@@ -59,7 +60,7 @@ STRONG_CHG_PCT = PARAMS['STRONG_CHG_PCT']
 print(f"[系统] 加载参数: HIGH_RISK_POS={HIGH_RISK_POS}, STRONG_CHG_PCT={STRONG_CHG_PCT}")
 # ==============================================
 
-ts.set_token(MY_TOKEN)
+ts.set_token(TUSHARE_TOKEN)
 pro = ts.pro_api(timeout=15)
 
 
