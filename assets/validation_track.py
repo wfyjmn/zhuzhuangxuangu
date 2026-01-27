@@ -169,7 +169,8 @@ def update_validation_records(last_trade_day, trade_dates):
 
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="更新进度"):
         ts_code = row['ts_code']
-        pick_date = row['pick_date']
+        # 兼容不同格式的日期字段
+        pick_date = row['pick_date'] if 'pick_date' in row.index else row.get('trade_date')
         buy_price = float(row['buy_price'])
 
         # 获取从选股日到最新交易日的所有数据
@@ -352,12 +353,12 @@ def generate_validation_report():
 
     # 最新记录
     print(f"\n[最新选股记录]")
-    latest_records = df.sort_values('pick_date', ascending=False).head(10)
-    cols = ['pick_date', 'ts_code', 'strategy', 'buy_price', 'day1_return', 'day3_return', 'day5_return', 'status']
-    for col in cols:
-        if col not in latest_records.columns:
-            continue
-    print(latest_records[cols].to_string(index=False))
+    date_column = 'pick_date' if 'pick_date' in df.columns else 'trade_date'
+    latest_records = df.sort_values(date_column, ascending=False).head(10)
+    cols = [date_column if c == 'pick_date' else c for c in ['pick_date', 'ts_code', 'strategy', 'buy_price', 'day1_return', 'day3_return', 'day5_return', 'status']]
+    # 过滤存在的列
+    available_cols = [col for col in cols if col in latest_records.columns]
+    print(latest_records[available_cols].to_string(index=False))
 
     print("="*80)
 
