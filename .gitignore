@@ -30,14 +30,18 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# 数据文件
-*.csv
+# 数据文件（排除策略配置）
+validation_records.csv
+paper_trading_records.csv
+params_history.csv
+optimization_history.csv
+backtest_results.csv
 *.xlsx
-*.json
 
-# 备份文件
+# 优化后的参数（由用户决定是否提交）
+strategy_params_optimized.json
+strategy_params_backup.json
 *.backup
-*.token_backup
 
 # 日志
 *.log
