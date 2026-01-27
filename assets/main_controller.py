@@ -71,7 +71,9 @@ def run_stock_selection():
         result = subprocess.run(
             [sys.executable, '柱形选股-筛选.py'],
             capture_output=True,
-            text=True
+            text=True,
+            encoding='utf-8',
+            errors='replace'  # 遇到编码错误时替换字符，避免崩溃
         )
 
         if result.returncode != 0:
@@ -91,7 +93,9 @@ def run_stock_selection():
         result = subprocess.run(
             [sys.executable, '柱形选股-第2轮.py'],
             capture_output=True,
-            text=True
+            text=True,
+            encoding='utf-8',
+            errors='replace'
         )
 
         if result.returncode != 0:
@@ -120,7 +124,9 @@ def run_validation_tracking(mode='update'):
         result = subprocess.run(
             [sys.executable, 'validation_track.py', mode],
             capture_output=True,
-            text=True
+            text=True,
+            encoding='utf-8',
+            errors='replace'
         )
 
         if result.returncode != 0:
@@ -157,7 +163,9 @@ def run_parameter_optimization():
         result = subprocess.run(
             [sys.executable, 'parameter_optimizer.py'],
             capture_output=True,
-            text=True
+            text=True,
+            encoding='utf-8',
+            errors='replace'
         )
 
         if result.returncode != 0:
