@@ -1,104 +1,102 @@
 {
   "version": "2.0",
-  "description": "策略参数配置文件 - 支持遗传算法优化",
-  "optimized": false,
-  "last_updated": null,
+  "last_updated": "2026-01-28",
+  "optimized": true,
+  "genetic_algorithm": {
+    "enabled": true,
+    "population_size": 50,
+    "generations": 30,
+    "mutation_rate": 0.1,
+    "crossover_rate": 0.7,
+    "tournament_size": 3,
+    "elite_size": 2,
+    "stagnation_generations": 5
+  },
   "optimization_stats": {
     "generation": 0,
-    "sharpe_ratio": 0,
-    "win_rate": 0
+    "sharpe_ratio": 2.4782421418913128
   },
-  
   "scoring_weights": {
     "safety": {
-      "base_scores": [25, 20, 15, 10],
-      "pos_thresholds": [0.2, 0.4, 0.6],
-      "low_vol_bonus": 2,
-      "max_score": 25
+      "max_score": 20,
+      "base_scores": [
+        26,
+        19,
+        11,
+        6
+      ],
+      "low_vol_bonus": 2
     },
     "offensive": {
+      "max_score": 30,
       "strategy_base": {
-        "强攻": 15,
+        "强攻": 14,
         "梯量": 10,
-        "洗盘": 5
+        "洗盘": 2
       },
       "vol_ratio_bonus": [
-        {"threshold": 2.0, "score": 10},
-        {"threshold": 1.5, "score": 8}
+        {
+          "threshold": 2.0,
+          "score": 10
+        },
+        {
+          "threshold": 1.5,
+          "score": 8
+        }
       ],
       "pct_chg_bonus": [
-        {"threshold": 5, "score": 10},
-        {"threshold": 2, "score": 5}
+        {
+          "threshold": 5.0,
+          "score": 10
+        },
+        {
+          "threshold": 2.0,
+          "score": 5
+        }
       ],
       "wash_compensation": {
         "enabled": true,
-        "pct_range": [-3, 3],
         "score": 10
-      },
-      "max_score": 35
+      }
     },
     "certainty": {
+      "max_score": 25,
       "base_score": 10,
       "vol_threshold": 1.8,
       "vol_bonus": 5,
-      "ma_above_bonus": 10,
-      "max_score": 25
+      "ma_above_bonus": 10
     },
     "match": {
+      "max_score": 15,
       "base_score": 10,
       "strong_attack_bonus": {
-        "pos_threshold": 0.3,
-        "vol_threshold": 1.5,
         "score": 5
       },
       "wash_bonus": {
-        "pos_threshold": 0.6,
-        "vol_threshold": 0.8,
-        "pct_range": [-3, 0],
         "score": 5
-      },
-      "max_score": 15
-    },
-    "total_max_score": 100
+      }
+    }
   },
-  
   "indicators": {
     "ma_periods": {
-      "short": 20,
-      "medium": 60
+      "short": 17,
+      "medium": 58
     },
-    "vol_ma_period": 5,
-    "lookback_period": 250,
-    "min_data_days": 60
+    "vol_ma_period": 5
   },
-  
   "thresholds": {
-    "SCORE_THRESHOLD_NORMAL": 70,
-    "SCORE_THRESHOLD_WASH": 65,
-    "TURNOVER_THRESHOLD_NORMAL": 10,
-    "TURNOVER_THRESHOLD_WASH": 5,
-    "TOP_N_PER_STRATEGY": 10
+    "SCORE_THRESHOLD_NORMAL": 79,
+    "SCORE_THRESHOLD_WASH": 64,
+    "TURNOVER_THRESHOLD_NORMAL": 1.5,
+    "TURNOVER_THRESHOLD_WASH": 0.6,
+    "TOP_N_PER_STRATEGY": 5
   },
-  
-  "genetic_algorithm": {
-    "population_size": 50,
-    "generations": 100,
-    "mutation_rate": 0.1,
-    "crossover_rate": 0.7,
-    "elite_size": 5,
-    "tournament_size": 3,
-    "mutation_range": 0.2,
-    "convergence_threshold": 0.001,
-    "stagnation_generations": 10
-  },
-  
-  "backtest": {
-    "start_date": "20230101",
-    "end_date": null,
-    "initial_capital": 1000000,
-    "commission_rate": 0.0003,
-    "slippage": 0.001,
-    "position_limit": 0.3,
-    "max_positions": 5
+  "params": {
+    "first_round": {
+      "HIGH_RISK_POS": 0.8,
+      "STRONG_CHG_PCT": 2.5,
+      "YEAR_WINDOW": 250,
+      "BATCH_SIZE": 50
+    }
   }
 }
