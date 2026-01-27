@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime
 
 # 设置环境变量
-os.environ['TUSHARE_TOKEN'] = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
+os.environ['TUSHARE_TOKEN'] = 'your_tushare_token_here'
 
 from src.stock_system.model_reporter import ModelReporter
 from src.stock_system.data_collector import MarketDataCollector

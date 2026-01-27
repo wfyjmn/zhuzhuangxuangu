@@ -7,7 +7,7 @@
 在当前代码中，您的 Tushare Token 使用**明文硬编码**方式存储：
 
 ```python
-MY_TOKEN = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
+MY_TOKEN = 'your_tushare_token_here'
 ```
 
 **影响范围**：
@@ -66,7 +66,7 @@ pip install python-dotenv
 cp .env.example .env
 
 # 编辑 .env 文件，填入您的 Token
-TUSHARE_TOKEN=8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7
+TUSHARE_TOKEN=your_tushare_token_here
 ```
 
 ### 步骤 3：运行迁移脚本
@@ -150,7 +150,7 @@ Environment="TUSHARE_TOKEN=your_token_here"
 
 ```python
 # 柱形选股-筛选.py
-MY_TOKEN = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
+MY_TOKEN = 'your_tushare_token_here'
 
 ts.set_token(MY_TOKEN)
 pro = ts.pro_api(timeout=30)
@@ -171,7 +171,7 @@ ts.set_token(TUSHARE_TOKEN)
 pro = ts.pro_api(timeout=30)
 
 # .env 文件
-TUSHARE_TOKEN=8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7
+TUSHARE_TOKEN=your_tushare_token_here
 ```
 
 **优势**：

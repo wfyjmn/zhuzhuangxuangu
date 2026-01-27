@@ -21,7 +21,7 @@
 
 3. **填入实际配置值**
    ```env
-   TUSHARE_TOKEN=8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7
+   TUSHARE_TOKEN=your_tushare_token_here
    ```
 
 4. **加载环境变量**
@@ -39,20 +39,20 @@
 **Linux/Mac:**
 ```bash
 # 临时设置（当前会话有效）
-export TUSHARE_TOKEN=8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7
+export TUSHARE_TOKEN=your_tushare_token_here
 
 # 永久设置（写入 ~/.bashrc 或 ~/.zshrc）
-echo 'export TUSHARE_TOKEN=8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7' >> ~/.bashrc
+echo 'export TUSHARE_TOKEN=your_tushare_token_here' >> ~/.bashrc
 source ~/.bashrc
 ```
 
 **Windows (PowerShell):**
 ```powershell
 # 临时设置
-$env:TUSHARE_TOKEN="8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7"
+$env:TUSHARE_TOKEN="your_tushare_token_here"
 
 # 永久设置（系统环境变量）
-setx TUSHARE_TOKEN "8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7"
+setx TUSHARE_TOKEN "your_tushare_token_here"
 ```
 
 ### 方法三：IDE 配置
@@ -68,7 +68,7 @@ setx TUSHARE_TOKEN "8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7"
       "request": "launch",
       "program": "run_system.py",
       "env": {
-        "TUSHARE_TOKEN": "8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7"
+        "TUSHARE_TOKEN": "your_tushare_token_here"
       }
     }
   ]
@@ -80,7 +80,7 @@ setx TUSHARE_TOKEN "8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7"
 2. 选择你的运行配置
 3. 在 Environment variables 中添加：
    ```
-   TUSHARE_TOKEN=8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7
+   TUSHARE_TOKEN=your_tushare_token_here
    ```
 
 ## 环境变量说明

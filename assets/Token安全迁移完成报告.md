@@ -36,7 +36,7 @@
 
 **修改前**：
 ```python
-MY_TOKEN = '8f5cd68a38bb5bd3fe035ff544bc8c71c6c97e70b081d9a58f8d0bd7'
+MY_TOKEN = 'your_tushare_token_here'
 ts.set_token(MY_TOKEN)
 ```
 

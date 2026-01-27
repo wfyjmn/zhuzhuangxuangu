@@ -1,14 +1,56 @@
-node_modules
-dist
-.DS_Store
-*.swp
-.git/*
+# Python
 __pycache__/
-*.pyc
-.venv/*
-*.o
-*.a
-/vendor
-*.egg-info/
-/.env
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyo
+*.pyd
+.Python
+
+# 虚拟环境
+venv/
+env/
+.venv/
+ENV/
+
+# 环境变量（包含敏感信息）
 .env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 数据文件
+*.csv
+*.xlsx
+*.json
+
+# 备份文件
+*.backup
+*.token_backup
+
+# 日志
+*.log
+logs/
+temp/
+tmp/
+
+# 项目特定
+cleanup_tokens.py
+压缩包*.tar.gz
+下载说明.md
+打包内容清单.md
+压缩包交付说明.md
+GITHUB上传指南.md
+GITHUB_README.md
+test_*.py
