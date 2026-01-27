@@ -154,7 +154,7 @@ def run_parameter_optimization():
         print("[警告] 无法加载参数配置")
         return False
 
-    if not params['params'].get('optimization', {}).get('enabled', False):
+    if not params.get('params', {}).get('optimization', {}).get('enabled', False):
         print("[信息] 参数优化功能未启用，跳过此阶段")
         return True
 
@@ -181,6 +181,57 @@ def run_parameter_optimization():
         return False
 
 
+def run_genetic_optimization():
+    """运行遗传算法参数优化"""
+    print("\n" + "="*80)
+    print("【阶段 4】遗传算法优化")
+    print("="*80)
+
+    params = load_params()
+    if not params:
+        print("[警告] 无法加载参数配置")
+        return False
+
+    # 检查是否有足够的历史数据
+    try:
+        import pandas as pd
+        validation_records = pd.read_csv('validation_records.csv', encoding='utf-8-sig')
+        if len(validation_records) < 50:
+            print(f"[警告] 验证数据不足（{len(validation_records)}条），建议至少50条数据后再运行遗传算法")
+            print("[信息] 跳过遗传算法优化")
+            return True
+    except:
+        print("[警告] 无法读取验证记录")
+        return True
+
+    print(f"\n[步骤 4.1] 开始遗传算法优化（种群大小: {params['genetic_algorithm']['population_size']}）...")
+    try:
+        result = subprocess.run(
+            [sys.executable, 'genetic_optimizer.py'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace'
+        )
+
+        if result.returncode != 0:
+            print(f"[错误] 遗传算法优化失败")
+            print(result.stderr)
+            return False
+
+        print("[完成] 遗传算法优化成功")
+
+        # 提示用户应用优化后的参数
+        print("\n[提示] 优化后的参数已保存到 strategy_params_optimized.json")
+        print("[提示] 如需应用新参数，请将文件重命名为 strategy_params.json 或手动更新参数")
+
+        return True
+
+    except Exception as e:
+        print(f"[错误] 执行遗传算法优化失败: {e}")
+        return False
+
+
 def run_full_pipeline():
     """运行完整流程：选股 → 验证 → 优化"""
     print_banner()
@@ -203,6 +254,11 @@ def run_full_pipeline():
         print("\n[⚠️ 警告] 参数优化阶段失败")
         # 参数优化失败不影响整体流程
 
+    # 阶段 4：遗传算法优化（新增）
+    if not run_genetic_optimization():
+        print("\n[⚠️ 警告] 遗传算法优化阶段失败")
+        # 遗传算法失败不影响整体流程
+
     print("\n" + "="*80)
     print("【✅ 完成】完整流程执行完毕")
     print("="*80)
@@ -212,6 +268,8 @@ def run_full_pipeline():
     print("  - 模拟交易: paper_trading_records.csv")
     print("  - 参数配置: strategy_params.json")
     print("  - 参数历史: params_history.csv")
+    print("  - 优化后参数: strategy_params_optimized.json (如有)")
+    print("  - 优化历史: optimization_history.csv (如有)")
     print("="*80)
 
     return True
@@ -257,15 +315,17 @@ def show_usage():
     print("\n使用说明：")
     print("\n  python main_controller.py [mode]")
     print("\n  模式说明：")
-    print("    full    - 运行完整流程（选股 + 验证 + 优化）")
+    print("    full    - 运行完整流程（选股 + 验证 + 优化 + 遗传算法）")
     print("    select  - 仅运行选股筛选")
     print("    validate- 仅运行验证跟踪更新")
     print("    optimize- 仅运行参数优化")
+    print("    genetic - 仅运行遗传算法优化")
     print("\n  默认模式：full")
     print("\n示例：")
     print("  python main_controller.py           # 运行完整流程")
     print("  python main_controller.py validate  # 仅更新验证数据")
     print("  python main_controller.py optimize  # 仅优化参数")
+    print("  python main_controller.py genetic   # 仅运行遗传算法优化")
     print("="*80)
 
 
@@ -287,6 +347,9 @@ def main():
         run_validation_only()
     elif mode == 'optimize':
         run_optimization_only()
+    elif mode == 'genetic':
+        print_banner()
+        run_genetic_optimization()
     elif mode in ['help', '-h', '--help']:
         show_usage()
     else:
