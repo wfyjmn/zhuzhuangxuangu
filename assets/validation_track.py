@@ -391,7 +391,9 @@ def run_validation_tracker(mode='all'):
         print(f"[系统] 找到 {len(pick_files)} 个选股结果文件")
 
         df_records = load_validation_records()
-        existing_picks = set(df_records['pick_date'].tolist()) if not df_records.empty else set()
+        # 兼容不同格式的验证记录文件（pick_date 或 trade_date）
+        date_column = 'pick_date' if 'pick_date' in df_records.columns else 'trade_date'
+        existing_picks = set(df_records[date_column].tolist()) if not df_records.empty else set()
 
         for filename, date_str in pick_files:
             if date_str in existing_picks:
