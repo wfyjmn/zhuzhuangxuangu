@@ -62,32 +62,26 @@ class AIReferee:
         # 训练历史
         self.training_history = {}
 
-    def _init_model(self):
-        """初始化模型"""
-        if self.model_type == 'xgboost' and XGBOOST_AVAILABLE:
-            # XGBoost分类器
-            params = {
-                'n_estimators': 100,
-                'max_depth': 6,
-                'learning_rate': 0.1,
+    def _get_default_params(self) -> Dict:
+        """获取默认参数（优化版）"""
+        if self.model_type == 'xgboost':
+            return {
+                'n_estimators': 200,  # 增加树的数量
+                'max_depth': 5,       # 降低深度，避免过拟合
+                'learning_rate': 0.05,  # 降低学习率，更稳健
                 'subsample': 0.8,
                 'colsample_bytree': 0.8,
                 'random_state': 42,
                 'use_label_encoder': False,
                 'eval_metric': 'logloss',
                 # [关键修复4] 添加 scale_pos_weight 处理不平衡样本
-                'scale_pos_weight': 1.0  # 将在 train() 中动态设置
+                'scale_pos_weight': 1.0  # 将在训练时动态设置
             }
-            params.update(self.model_params)
-
-            self.model = xgb.XGBClassifier(**params)
-
-        elif self.model_type == 'lightgbm' and LIGHTGBM_AVAILABLE:
-            # LightGBM分类器
-            params = {
-                'n_estimators': 100,
-                'max_depth': 6,
-                'learning_rate': 0.1,
+        elif self.model_type == 'lightgbm':
+            return {
+                'n_estimators': 200,
+                'max_depth': 5,
+                'learning_rate': 0.05,
                 'subsample': 0.8,
                 'colsample_bytree': 0.8,
                 'random_state': 42,
@@ -95,19 +89,41 @@ class AIReferee:
                 # [关键修复4] 添加 is_unbalance 处理不平衡样本
                 'is_unbalance': True
             }
+        else:
+            return {}
+
+    def _get_model_instance(self, params_override: Dict = None):
+        """
+        获取模型实例（动态创建）
+
+        Args:
+            params_override: 参数覆盖
+
+        Returns:
+            模型实例
+        """
+        params = self._get_default_params().copy()
+        if self.model_params:
             params.update(self.model_params)
+        if params_override:
+            params.update(params_override)
 
-            self.model = lgb.LGBMClassifier(**params)
-
+        if self.model_type == 'xgboost' and XGBOOST_AVAILABLE:
+            return xgb.XGBClassifier(**params)
+        elif self.model_type == 'lightgbm' and LIGHTGBM_AVAILABLE:
+            return lgb.LGBMClassifier(**params)
         else:
             # 使用简单的逻辑回归作为后备
             from sklearn.linear_model import LogisticRegression
-            self.model = LogisticRegression(
+            return LogisticRegression(
                 max_iter=1000,
                 random_state=42,
                 class_weight='balanced'  # 处理不平衡样本
             )
-            print(f"[警告] 使用 LogisticRegression 作为后备模型")
+
+    def _init_model(self):
+        """初始化模型（保留向后兼容）"""
+        self.model = self._get_model_instance()
 
     def prepare_features(self, X: pd.DataFrame) -> pd.DataFrame:
         """
@@ -237,6 +253,194 @@ class AIReferee:
         print(f"\n    混淆矩阵:")
         print(f"      {cm}")
 
+    def train_time_series(self, X: pd.DataFrame, Y: pd.Series, n_splits: int = 5):
+        """
+        [新增] 时序交叉验证训练（推荐使用）
+
+        使用 TimeSeriesSplit 进行多折时序交叉验证，比单次切分更稳健。
+        保留最后一个 Fold 的模型，因为它看过的历史数据最多。
+
+        Args:
+            X: 特征DataFrame（必须包含 trade_date 列）
+            Y: 标签Series
+            n_splits: 交叉验证折数
+
+        Returns:
+            交叉验证结果（DataFrame）
+        """
+        print(f"\n{'='*80}")
+        print(f"[AI裁判] 时序交叉验证训练 (n_splits={n_splits})")
+        print(f"{'='*80}")
+
+        # 准备特征
+        X_features = self.prepare_features(X)
+
+        # [关键修复2] 使用时序切分，避免数据泄露
+        if 'trade_date' not in X.columns:
+            raise ValueError("缺少 trade_date 列，无法进行时序交叉验证")
+
+        # 按时间排序
+        X_sorted = X.sort_values('trade_date').reset_index(drop=True)
+
+        # 确保 Y 是 pandas.Series
+        if isinstance(Y, np.ndarray):
+            Y = pd.Series(Y, index=X.index)
+        Y_sorted = Y.loc[X_sorted.index].reset_index(drop=True)
+
+        # 从特征中移除 trade_date 列（只用于切分，不用于训练）
+        X_features_sorted = X_features.loc[X_sorted.index].reset_index(drop=True)
+
+        # [关键修复4] 计算正负样本权重比（全局）
+        pos_count = Y_sorted.sum()
+        neg_count = len(Y_sorted) - pos_count
+        scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
+
+        pos_ratio = pos_count / len(Y_sorted)
+
+        print(f"[样本统计] 总样本: {len(Y_sorted)}, 正样本: {pos_count}, 负样本: {neg_count}")
+        print(f"[样本平衡] 正样本占比: {pos_ratio:.1%}, scale_pos_weight: {scale_pos_weight:.2f}")
+
+        # 使用 TimeSeriesSplit 进行时序交叉验证
+        tscv = TimeSeriesSplit(n_splits=n_splits)
+
+        fold_results = []
+        best_model = None
+        best_fold = None
+        best_score = 0
+
+        for fold, (train_idx, val_idx) in enumerate(tscv.split(X_features_sorted), 1):
+            print(f"\n{'='*80}")
+            print(f"[Fold {fold}/{n_splits}] 时序交叉验证")
+            print(f"{'='*80}")
+
+            # 切分数据
+            X_train = X_features_sorted.iloc[train_idx]
+            X_val = X_features_sorted.iloc[val_idx]
+            y_train = Y_sorted.iloc[train_idx]
+            y_val = Y_sorted.iloc[val_idx]
+
+            # 计算时间范围
+            train_date_start = X_sorted['trade_date'].iloc[train_idx].min()
+            train_date_end = X_sorted['trade_date'].iloc[train_idx].max()
+            val_date_start = X_sorted['trade_date'].iloc[val_idx].min()
+            val_date_end = X_sorted['trade_date'].iloc[val_idx].max()
+
+            print(f"[时间范围]")
+            print(f"  训练集: {train_date_start} ~ {train_date_end} ({len(X_train)} 样本)")
+            print(f"  验证集: {val_date_start} ~ {val_date_end} ({len(X_val)} 样本)")
+
+            # [关键] 动态创建模型实例（每个 Fold 独立）
+            if self.model_type == 'xgboost':
+                model = self._get_model_instance({'scale_pos_weight': scale_pos_weight})
+            else:
+                model = self._get_model_instance()
+
+            # 训练模型
+            print(f"[训练中]...")
+            model.fit(X_train, y_train)
+
+            # 验证模型
+            y_pred = model.predict(X_val)
+            y_prob = model.predict_proba(X_val)[:, 1]
+
+            # 计算评估指标
+            accuracy = accuracy_score(y_val, y_pred)
+            precision = precision_score(y_val, y_pred, zero_division=0)
+            recall = recall_score(y_val, y_pred, zero_division=0)
+            f1 = f1_score(y_val, y_pred, zero_division=0)
+            auc = roc_auc_score(y_val, y_prob)
+
+            # 记录 Fold 结果
+            fold_result = {
+                'fold': fold,
+                'train_samples': len(X_train),
+                'val_samples': len(X_val),
+                'accuracy': accuracy,
+                'precision': precision,
+                'recall': recall,
+                'f1_score': f1,
+                'auc_score': auc,
+                'train_date_start': str(train_date_start),
+                'train_date_end': str(train_date_end),
+                'val_date_start': str(val_date_start),
+                'val_date_end': str(val_date_end)
+            }
+            fold_results.append(fold_result)
+
+            # 打印评估指标
+            print(f"[评估指标]")
+            print(f"  准确率（Accuracy）: {accuracy:.4f}")
+            print(f"  精确率（Precision）: {precision:.4f}")
+            print(f"  召回率（Recall）: {recall:.4f}")
+            print(f"  F1分数: {f1:.4f}")
+            print(f"  AUC分数: {auc:.4f}")
+
+            # 打印混淆矩阵
+            cm = confusion_matrix(y_val, y_pred)
+            print(f"\n  混淆矩阵:")
+            print(f"    TN={cm[0,0]:3d} | FP={cm[0,1]:3d}")
+            print(f"    FN={cm[1,0]:3d} | TP={cm[1,1]:3d}")
+
+            # 保留最后一个 Fold 的模型（因为它看过的历史数据最多）
+            if fold == n_splits:
+                best_model = model
+                best_fold = fold
+                best_score = auc
+
+        # 保存最终模型
+        self.model = best_model
+
+        # 记录训练历史
+        df_fold_results = pd.DataFrame(fold_results)
+
+        # 计算平均指标
+        avg_metrics = {
+            'avg_accuracy': df_fold_results['accuracy'].mean(),
+            'std_accuracy': df_fold_results['accuracy'].std(),
+            'avg_precision': df_fold_results['precision'].mean(),
+            'std_precision': df_fold_results['precision'].std(),
+            'avg_recall': df_fold_results['recall'].mean(),
+            'std_recall': df_fold_results['recall'].std(),
+            'avg_f1': df_fold_results['f1_score'].mean(),
+            'std_f1': df_fold_results['f1_score'].std(),
+            'avg_auc': df_fold_results['auc_score'].mean(),
+            'std_auc': df_fold_results['auc_score'].std(),
+        }
+
+        self.training_history = {
+            'method': 'time_series_cv',
+            'n_splits': n_splits,
+            'total_samples': len(Y_sorted),
+            'pos_samples': int(pos_count),
+            'neg_samples': int(neg_count),
+            'scale_pos_weight': scale_pos_weight,
+            'best_fold': best_fold,
+            'fold_results': fold_results,
+            'avg_metrics': avg_metrics,
+            'feature_count': len(self.feature_names)
+        }
+
+        # 打印汇总
+        print(f"\n{'='*80}")
+        print(f"[训练完成] 交叉验证汇总")
+        print(f"{'='*80}")
+        print(f"[平均指标]")
+        print(f"  准确率（Accuracy）: {avg_metrics['avg_accuracy']:.4f} (+/- {avg_metrics['std_accuracy']:.4f})")
+        print(f"  精确率（Precision）: {avg_metrics['avg_precision']:.4f} (+/- {avg_metrics['std_precision']:.4f})")
+        print(f"  召回率（Recall）: {avg_metrics['avg_recall']:.4f} (+/- {avg_metrics['std_recall']:.4f})")
+        print(f"  F1分数: {avg_metrics['avg_f1']:.4f} (+/- {avg_metrics['std_f1']:.4f})")
+        print(f"  AUC分数: {avg_metrics['avg_auc']:.4f} (+/- {avg_metrics['std_auc']:.4f})")
+
+        print(f"\n[模型选择]")
+        print(f"  已保存第 {best_fold} Fold 的模型（看过的历史数据最多）")
+        print(f"  AUC分数: {best_score:.4f}")
+
+        # 打印详细结果
+        print(f"\n[详细结果]")
+        print(df_fold_results.to_string(index=False))
+
+        return df_fold_results
+
     def predict(self, X: pd.DataFrame) -> pd.Series:
         """
         预测股票盈利概率
@@ -343,9 +547,9 @@ class AIReferee:
 
         return self
 
-    def cross_validate(self, X: pd.DataFrame, Y: pd.Series, cv: int = 5) -> Dict:
+    def cross_validate(self, X: pd.DataFrame, Y: pd.Series, cv: int = 5) -> pd.DataFrame:
         """
-        [关键修复2] 时序交叉验证
+        [已废弃] 请使用 train_time_series() 方法进行时序交叉验证训练
 
         Args:
             X: 特征DataFrame（必须包含 trade_date 列）
@@ -353,33 +557,13 @@ class AIReferee:
             cv: 折数
 
         Returns:
-            交叉验证结果
+            交叉验证结果（DataFrame）
         """
-        print(f"\n[交叉验证] {cv}折时序交叉验证")
+        print(f"\n[警告] cross_validate() 方法已废弃，请使用 train_time_series() 方法")
+        print(f"        train_time_series() 提供更详细的交叉验证结果和模型保存功能\n")
 
-        X_features = self.prepare_features(X)
-
-        # [关键修复2] 使用 TimeSeriesSplit 进行时序交叉验证
-        # [关键修复1] 删除标准化
-        # X_scaled = self.scaler.fit_transform(X_features)
-
-        if 'trade_date' in X.columns:
-            # 使用时序交叉验证
-            tscv = TimeSeriesSplit(n_splits=cv)
-            scores = cross_val_score(self.model, X_features, Y, cv=tscv, scoring='accuracy')
-        else:
-            print(f"  [警告] 缺少 trade_date 列，使用普通交叉验证")
-            scores = cross_val_score(self.model, X_features, Y, cv=cv, scoring='accuracy')
-
-        results = {
-            'mean_accuracy': scores.mean(),
-            'std_accuracy': scores.std(),
-            'scores': scores.tolist()
-        }
-
-        print(f"  平均准确率: {results['mean_accuracy']:.4f} (+/- {results['std_accuracy']:.4f})")
-
-        return results
+        # 直接调用 train_time_series
+        return self.train_time_series(X, Y, n_splits=cv)
 
 
 def main():
@@ -422,17 +606,75 @@ def main():
     # 初始化AI裁判
     referee = AIReferee(model_type='xgboost')
 
-    # 训练模型
+    # 训练模型（单次切分）
+    print("\n[测试1] 单次时序切分训练（保留向后兼容）")
     referee.train(X, Y)
 
     # 预测
     test_X = X[:10]
     probabilities = referee.predict(test_X)
 
-    print(f"\n[测试] 预测结果（前10个样本）:")
+    print(f"\n[测试1] 预测结果（前10个样本）:")
     for i, prob in enumerate(probabilities):
         label = Y.iloc[i]
         print(f"  样本 {i+1}: 概率={prob:.4f}, 真实标签={label}")
+
+    # 特征重要性
+    print(f"\n[测试1] 特征重要性 Top 10:")
+    importance_df = referee.get_feature_importance()
+    print(importance_df.head(10))
+
+    # 保存模型
+    model_file = referee.save_model()
+
+    # 测试加载模型
+    print(f"\n[测试1] 加载模型...")
+    new_referee = AIReferee()
+    new_referee.load_model(model_file)
+
+    # 验证预测结果一致
+    new_probabilities = new_referee.predict(test_X)
+    print(f"  预测结果一致: {all(probabilities == new_probabilities)}")
+
+    # ========== 测试2：时序交叉验证训练（推荐） ==========
+    print(f"\n{'='*80}")
+    print(f"[测试2] 时序交叉验证训练（推荐使用）")
+    print(f"{'='*80}")
+
+    # 创建带时间序列的模拟数据
+    dates = pd.date_range('20230101', periods=n_samples)
+    X_with_date = X.copy()
+    X_with_date['trade_date'] = dates
+
+    # 初始化新的AI裁判
+    referee_ts = AIReferee(model_type='xgboost')
+
+    # 使用时序交叉验证训练
+    fold_results = referee_ts.train_time_series(X_with_date, Y, n_splits=5)
+
+    # 预测
+    probabilities_ts = referee_ts.predict(test_X)
+
+    print(f"\n[测试2] 预测结果（前10个样本）:")
+    for i, prob in enumerate(probabilities_ts):
+        label = Y.iloc[i]
+        print(f"  样本 {i+1}: 概率={prob:.4f}, 真实标签={label}")
+
+    # 特征重要性
+    print(f"\n[测试2] 特征重要性 Top 10:")
+    importance_df_ts = referee_ts.get_feature_importance()
+    print(importance_df_ts.head(10))
+
+    # 保存模型
+    model_file_ts = referee_ts.save_model()
+
+    # 对比两种方法的结果
+    print(f"\n{'='*80}")
+    print(f"[对比] 单次切分 vs 时序交叉验证")
+    print(f"{'='*80}")
+    print(f"单次切分 AUC: {referee.training_history['auc_score']:.4f}")
+    print(f"时序交叉 AUC: {referee_ts.training_history['avg_metrics']['avg_auc']:.4f} (+/- {referee_ts.training_history['avg_metrics']['std_auc']:.4f})")
+
 
     # 特征重要性
     print(f"\n[特征重要性] Top 10:")
