@@ -307,8 +307,40 @@ def run_system():
     else:
         df_final = pd.merge(df_scored, df_basic, on='ts_code', how='inner')
 
+    # 4.5 多因子评分（新增）
+    print(f"[4.5] 多因子模型评分（资金流 + 板块共振）...")
+    try:
+        from multi_factor_model import MultiFactorModel
+        factor_model = MultiFactorModel()
+        
+        # 提取技术评分字典
+        tech_scores = df_scored.set_index('ts_code')['New_Score'].to_dict()
+        
+        # 批量计算综合得分
+        df_multi_factor = factor_model.batch_calculate_scores(
+            df_final['ts_code'].tolist(),
+            tech_scores
+        )
+        
+        # 合并多因子得分
+        df_final = pd.merge(df_final, df_multi_factor[['ts_code', 'moneyflow_score', 'sector_score', 'sector_name', 'composite_score']], on='ts_code', how='left')
+        
+        # 更新评分：使用综合得分替代原有技术评分
+        df_final['New_Score_Original'] = df_final['New_Score']  # 保存原始技术评分
+        df_final['New_Score'] = df_final['composite_score']  # 使用综合得分
+        
+        print(f"    多因子评分完成，平均资金流得分: {df_final['moneyflow_score'].mean():.1f}")
+        print(f"    平均板块得分: {df_final['sector_score'].mean():.1f}")
+        print(f"    平均综合得分: {df_final['New_Score'].mean():.1f}")
+    except Exception as e:
+        print(f"    [警告] 多因子模型运行失败，使用原始技术评分: {e}")
+        df_final['moneyflow_score'] = 0
+        df_final['sector_score'] = 0
+        df_final['sector_name'] = '未知'
+        df_final['New_Score_Original'] = df_final['New_Score']
+
     # 4. 风控筛选 (双轨制)
-    print(f"[4] 执行风控筛选...")
+    print(f"[5] 执行风控筛选...")
 
     # 基础条件 (如果有基本面数据才卡)
     cond_pe = (df_final['pe_ttm'] > 0) & (df_final['pe_ttm'] < 100) if 'pe_ttm' in df_final.columns and df_final[
@@ -340,7 +372,7 @@ def run_system():
     # ==========================================================================
     # [新增] 终极PK：每种策略只取 Top 3-5
     # ==========================================================================
-    print(f"[5] 执行终极PK (优中选优)...")
+    print(f"[6] 执行终极PK (优中选优)...")
     
     final_picks = []
     
