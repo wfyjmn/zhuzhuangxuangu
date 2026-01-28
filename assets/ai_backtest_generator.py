@@ -76,11 +76,16 @@ class AIBacktestGenerator:
         if daily_df.empty:
             return []
 
-        # 基础过滤：非ST，有成交量
+        # 计算量比（如果没有的话）
+        if 'vol_ratio' not in daily_df.columns:
+            # 量比 = 当日成交量 / 前5日平均成交量
+            # 由于这里只有当天的数据，暂时设置默认值
+            daily_df['vol_ratio'] = 1.0
+
+        # 基础过滤：非ST（通过ts_code过滤），有成交量
         mask = (
-            (~daily_df['name'].str.contains('ST', na=False)) &
-            (daily_df['amount'] > 50000000) &  # 成交额 > 5000万
-            (daily_df['vol_ratio'] > 0.5) &    # 量比 > 0.5
+            (~daily_df['ts_code'].str.contains('ST|退', na=False)) &  # 过滤ST和退市股票
+            (daily_df['amount'] > 1000) &  # 成交额 > 1000万（单位：万元）
             (daily_df['pct_chg'] > -9.8) &    # 非跌停
             (daily_df['pct_chg'] < 9.8)       # 非涨停
         )
@@ -88,14 +93,19 @@ class AIBacktestGenerator:
         pool = daily_df[mask].copy()
 
         # [关键修复] 策略逻辑复刻（简化版）
-        # 场景A: 放量进攻（量比>1.2, 涨幅>2%）
-        cond_attack = (pool['vol_ratio'] > 1.2) & (pool['pct_chg'] > 2.0)
+        # 场景A: 放量进攻（涨幅>1%）
+        cond_attack = (pool['pct_chg'] > 1.0)
 
-        # 场景B: 缩量洗盘（量比<0.8, 涨幅 -2% ~ 2%）
-        cond_wash = (pool['vol_ratio'] < 0.8) & (pool['pct_chg'] > -2.0) & (pool['pct_chg'] < 3.0)
+        # 场景B: 缩量洗盘（涨幅 -1% ~ 2%）
+        cond_wash = (pool['pct_chg'] > -1.0) & (pool['pct_chg'] < 2.0)
 
-        # 场景C: 梯量上涨（量比0.8-1.2, 涨幅0-3%）
-        cond_ramp = (pool['vol_ratio'] >= 0.8) & (pool['vol_ratio'] <= 1.2) & (pool['pct_chg'] > 0) & (pool['pct_chg'] < 3.0)
+        # 场景C: 梯量上涨（涨幅0-2%）
+        cond_ramp = (pool['pct_chg'] > 0) & (pool['pct_chg'] < 2.0)
+
+        # 综合候选池
+        candidates = pool[cond_attack | cond_wash | cond_ramp]['ts_code'].tolist()
+
+        return candidates
 
         # 综合候选池
         candidates = pool[cond_attack | cond_wash | cond_ramp]['ts_code'].tolist()
