@@ -62,6 +62,57 @@ def check_dependencies():
 def run_stock_selection():
     """运行选股流程"""
     print("\n" + "="*80)
+    print("【阶段 0】天气预报（市场环境研判）")
+    print("="*80)
+
+    # 🌤️ 运行天气预报系统
+    try:
+        from market_weather import MarketWeather
+        weather = MarketWeather()
+        forecast = weather.get_weather_forecast()
+
+        # 如果建议空仓，则跳过选股
+        if not forecast['allow_trading']:
+            print("\n" + "⚠️"*40)
+            print(f"\n[系统提醒] 当前市场天气: {forecast['weather']}")
+            print(f"[系统提醒] 系统建议: {forecast['action']}")
+            print(f"[系统提醒] 策略调整: {forecast['strategy_adj']}")
+            print("\n[决定] 暂停选股，空仓休息")
+            print("[提示] '雨天不出门'，保护资金安全比赚钱更重要")
+            print("⚠️"*40 + "\n")
+
+            # 记录到日志
+            with open('weather_decision.log', 'a', encoding='utf-8') as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"天气: {forecast['weather']}\n")
+                f.write(f"建议: {forecast['action']}\n")
+                f.write(f"决定: 暂停选股（空仓休息）\n")
+                f.write(f"{'='*80}\n")
+
+            return True  # 返回True但不执行选股
+
+        # 如果允许交易，根据天气调整参数
+        print(f"\n[系统] 当前市场天气: {forecast['weather']}")
+        print(f"[系统] 系统建议: {forecast['action']}")
+        print(f"[系统] 阈值调整: {forecast['threshold_adj']:+}分")
+        print("[系统] 继续执行选股流程\n")
+
+        # 记录决策
+        with open('weather_decision.log', 'a', encoding='utf-8') as f:
+            f.write(f"\n{'='*80}\n")
+            f.write(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"天气: {forecast['weather']}\n")
+            f.write(f"建议: {forecast['action']}\n")
+            f.write(f"阈值调整: {forecast['threshold_adj']:+}分\n")
+            f.write(f"决定: 执行选股\n")
+            f.write(f"{'='*80}\n")
+
+    except Exception as e:
+        print(f"[警告] 天气预报系统运行失败: {e}")
+        print("[信息] 继续执行选股流程（使用默认参数）\n")
+
+    print("\n" + "="*80)
     print("【阶段 1】运行选股筛选")
     print("="*80)
 
