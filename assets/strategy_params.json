@@ -14,25 +14,25 @@
   },
   "optimization_stats": {
     "generation": 0,
-    "sharpe_ratio": 2.409373324979472
+    "sharpe_ratio": 3.1965024347976723
   },
   "scoring_weights": {
     "safety": {
-      "max_score": 24,
+      "max_score": 20,
       "base_scores": [
-        25,
-        22,
-        11,
-        10
+        20,
+        17,
+        12,
+        11
       ],
       "low_vol_bonus": 2
     },
     "offensive": {
-      "max_score": 30,
+      "max_score": 25,
       "strategy_base": {
-        "强攻": 16,
-        "梯量": 9,
-        "洗盘": 6
+        "强攻": 19,
+        "梯量": 10,
+        "洗盘": 3
       },
       "vol_ratio_bonus": [
         {
@@ -79,14 +79,14 @@
   },
   "indicators": {
     "ma_periods": {
-      "short": 14,
-      "medium": 44
+      "short": 17,
+      "medium": 48
     },
     "vol_ma_period": 5
   },
   "thresholds": {
     "SCORE_THRESHOLD_NORMAL": 80,
-    "SCORE_THRESHOLD_WASH": 60,
+    "SCORE_THRESHOLD_WASH": 63,
     "TURNOVER_THRESHOLD_NORMAL": 1.0,
     "TURNOVER_THRESHOLD_WASH": 0.5,
     "TOP_N_PER_STRATEGY": 5
