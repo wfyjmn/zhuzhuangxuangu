@@ -57,7 +57,10 @@ class AIBacktestGenerator:
         if full_df is None or full_df.empty:
             return None
 
-        # [关键修复] 截取 start_date 之后的数据（不包含当天）
+        # [关键修复1] 确保 trade_date 为字符串类型
+        full_df['trade_date'] = full_df['trade_date'].astype(str)
+
+        # [关键修复2] 截取 start_date 之后的数据（不包含当天）
         future_df = full_df[full_df['trade_date'] > start_date].sort_values('trade_date')
 
         # 只取前 N 天
@@ -112,14 +115,21 @@ class AIBacktestGenerator:
 
         return candidates
 
-    def calculate_label(self, future_df: pd.DataFrame, buy_price: float) -> int:
+    def calculate_label(self, future_df: pd.DataFrame, buy_price: float,
+                       index_start_price: float = None, index_future_df: pd.DataFrame = None) -> int:
         """
-        [关键修复] 计算标签（1=盈利，0=亏损）
-        使用动态止盈止损，而不是傻傻持有5天
+        [关键修复 V5.0] 计算标签（1=盈利，0=亏损）
+        使用"相对收益"逻辑，避免 AI 在熊市变成"死空头"
+
+        标签逻辑升级：
+        1. 牛市/震荡市：绝对收益 > 3%
+        2. 熊市（大盘跌幅 > 2%）：超额收益 > 5%（即便个股跌了，但比大盘少跌很多，也是强势股）
 
         Args:
             future_df: 未来数据
             buy_price: 买入价格
+            index_start_price: 大盘买入时价格（用于计算超额收益）
+            index_future_df: 大盘未来数据
 
         Returns:
             标签（1=盈利，0=亏损）
@@ -127,23 +137,57 @@ class AIBacktestGenerator:
         if future_df is None or len(future_df) == 0:
             return 0
 
-        # [关键修复] 动态止盈止损检查
-        for price in future_df['close_qfq' if 'close_qfq' in future_df.columns else 'close']:
+        price_col = 'close_qfq' if 'close_qfq' in future_df.columns else 'close'
+
+        # 判断市场环境（是否为熊市）
+        is_bear_market = False
+        index_excess_return = 0
+
+        # 计算大盘收益（判断是否为熊市）
+        if index_start_price is not None and index_future_df is not None and len(index_future_df) > 0:
+            index_col = 'close_qfq' if 'close_qfq' in index_future_df.columns else 'close'
+            index_end_price = index_future_df.iloc[-1][index_col]
+            index_return = (index_end_price - index_start_price) / index_start_price * 100
+
+            # 如果大盘跌幅 > 2%，定义为熊市
+            if index_return < -2.0:
+                is_bear_market = True
+
+        # [动态止盈止损]
+        for i, row in future_df.iterrows():
+            price = row[price_col]
             pct_return = (price - buy_price) / buy_price * 100
+
+            # 同步计算大盘收益（用于超额收益判断）
+            if is_bear_market and index_future_df is not None and len(index_future_df) > 0:
+                index_col = 'close_qfq' if 'close_qfq' in index_future_df.columns else 'close'
+                idx_price = index_future_df.loc[row.name, index_col] if row.name in index_future_df.index else index_start_price
+                index_excess_return = pct_return - ((idx_price - index_start_price) / index_start_price * 100)
 
             # 止损检查
             if pct_return <= self.stop_loss:
                 return 0
 
-            # 止盈检查
-            if pct_return >= self.target_return:
+            # [熊市] 使用超额收益止盈（跑赢大盘 5% 就算赢）
+            if is_bear_market and index_excess_return >= 5.0:
+                return 1
+
+            # [牛市/震荡市] 使用绝对收益止盈（3%）
+            if not is_bear_market and pct_return >= self.target_return:
                 return 1
 
         # 持有到期后计算最终收益
-        final_price_col = 'close_qfq' if 'close_qfq' in future_df.columns else 'close'
-        final_price = future_df.iloc[-1][final_price_col]
+        final_price = future_df.iloc[-1][price_col]
         final_return = (final_price - buy_price) / buy_price * 100
 
+        # 熊市：超额收益 > 3%
+        if is_bear_market:
+            index_final = index_future_df.iloc[-1]['close_qfq' if 'close_qfq' in index_future_df.columns else 'close']
+            index_final_return = (index_final - index_start_price) / index_start_price * 100
+            excess_return = final_return - index_final_return
+            return 1 if excess_return > 3.0 else 0
+
+        # 牛市/震荡市：绝对收益 > 0
         return 1 if final_return > 0 else 0
 
     def generate_training_data(self, start_date: str, end_date: str,
@@ -198,6 +242,11 @@ class AIBacktestGenerator:
             if not candidates:
                 continue
 
+            # [新增] 获取大盘未来数据（用于相对收益计算）
+            index_future_df = self._get_future_data('000001.SH', date, self.hold_days)
+            index_df = self.warehouse.get_stock_data('000001.SH', date, days=5)
+            index_start_price = index_df.iloc[-1]['close_qfq' if 'close_qfq' in index_df.columns else 'close'] if index_df is not None and len(index_df) > 0 else None
+
             # 3. 逐个提取特征 + 计算标签
             for ts_code in candidates:
                 try:
@@ -215,9 +264,14 @@ class AIBacktestGenerator:
                     features['ts_code'] = ts_code
                     features['trade_date'] = date
 
-                    # B. [关键修复1] 计算标签 Y（需要 T+1 及之后的未来）
+                    # B. [关键修复 V5.0] 计算标签 Y（使用相对收益，避免死空头）
                     future_df = self._get_future_data(ts_code, date, self.hold_days)
-                    label = self.calculate_label(future_df, buy_price)
+                    label = self.calculate_label(
+                        future_df,
+                        buy_price,
+                        index_start_price=index_start_price,
+                        index_future_df=index_future_df
+                    )
 
                     features_list.append(features)
                     labels_list.append(label)
