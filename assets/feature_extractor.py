@@ -51,20 +51,26 @@ class FeatureExtractor:
             'new_score',          # 综合评分
         ]
 
-    def calculate_ma(self, df: pd.DataFrame, periods: List[int] = [5, 10, 20]) -> pd.DataFrame:
+    def calculate_ma(self, df: pd.DataFrame, periods: List[int] = [5, 10, 20], use_qfq: bool = True) -> pd.DataFrame:
         """
         计算移动平均线
 
         Args:
             df: 行情数据
             periods: 周期列表
+            use_qfq: 是否使用复权价格（默认True，必须使用复权价格）
 
         Returns:
             添加了MA列的DataFrame
         """
         df = df.copy()
+
+        # [关键修复] 必须使用复权价格计算技术指标
+        close_col = 'close_qfq' if (use_qfq and 'close_qfq' in df.columns) else 'close'
+
         for period in periods:
-            df[f'ma{period}'] = df['close'].rolling(window=period).mean()
+            df[f'ma{period}'] = df[close_col].rolling(window=period).mean()
+
         return df
 
     def calculate_bias(self, df: pd.DataFrame, periods: List[int] = [5, 10, 20]) -> pd.DataFrame:
@@ -79,8 +85,13 @@ class FeatureExtractor:
             添加了BIAS列的DataFrame
         """
         df = df.copy()
+
+        # [关键修复] 必须使用复权价格计算乖离率
+        close_col = 'close_qfq' if 'close_qfq' in df.columns else 'close'
+
         for period in periods:
-            df[f'bias_{period}'] = (df['close'] - df[f'ma{period}']) / df[f'ma{period}'] * 100
+            df[f'bias_{period}'] = (df[close_col] - df[f'ma{period}']) / df[f'ma{period}'] * 100
+
         return df
 
     def calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
@@ -95,11 +106,16 @@ class FeatureExtractor:
             添加了RSI列的DataFrame
         """
         df = df.copy()
-        delta = df['close'].diff()
+
+        # [关键修复] 必须使用复权价格计算RSI
+        close_col = 'close_qfq' if 'close_qfq' in df.columns else 'close'
+
+        delta = df[close_col].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
         rs = gain / loss
         df['rsi'] = 100 - (100 / (1 + rs))
+
         return df
 
     def calculate_macd(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -113,11 +129,16 @@ class FeatureExtractor:
             添加了MACD列的DataFrame
         """
         df = df.copy()
-        df['ema12'] = df['close'].ewm(span=12, adjust=False).mean()
-        df['ema26'] = df['close'].ewm(span=26, adjust=False).mean()
+
+        # [关键修复] 必须使用复权价格计算MACD
+        close_col = 'close_qfq' if 'close_qfq' in df.columns else 'close'
+
+        df['ema12'] = df[close_col].ewm(span=12, adjust=False).mean()
+        df['ema26'] = df[close_col].ewm(span=26, adjust=False).mean()
         df['dif'] = df['ema12'] - df['ema26']
         df['dea'] = df['dif'].ewm(span=9, adjust=False).mean()
         df['macd'] = (df['dif'] - df['dea']) * 2
+
         return df
 
     def extract_features(self, df: pd.DataFrame, index_data: pd.DataFrame = None,
@@ -163,10 +184,11 @@ class FeatureExtractor:
         features['bias_10'] = latest['bias_10']
         features['bias_20'] = latest['bias_20']
 
-        # 4. 涨跌幅特征
-        features['pct_chg_5d'] = (latest['close'] / df.iloc[-5]['close'] - 1) * 100 if len(df) >= 5 else 0
-        features['pct_chg_10d'] = (latest['close'] / df.iloc[-10]['close'] - 1) * 100 if len(df) >= 10 else 0
-        features['pct_chg_20d'] = (latest['close'] / df.iloc[-20]['close'] - 1) * 100 if len(df) >= 20 else 0
+        # 4. 涨跌幅特征（[关键修复] 必须使用复权价格）
+        close_col = 'close_qfq' if 'close_qfq' in df.columns else 'close'
+        features['pct_chg_5d'] = (latest[close_col] / df.iloc[-5][close_col] - 1) * 100 if len(df) >= 5 else 0
+        features['pct_chg_10d'] = (latest[close_col] / df.iloc[-10][close_col] - 1) * 100 if len(df) >= 10 else 0
+        features['pct_chg_20d'] = (latest[close_col] / df.iloc[-20][close_col] - 1) * 100 if len(df) >= 20 else 0
 
         # 5. 均线斜率（趋势强度）
         features['ma5_slope'] = (latest['ma5'] - df.iloc[-2]['ma5']) if len(df) >= 2 else 0
