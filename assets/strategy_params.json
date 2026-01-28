@@ -18,41 +18,24 @@
   },
   "scoring_weights": {
     "safety": {
-      "max_score": 17,
-      "base_scores": [
-        23,
-        18,
-        9,
-        11
-      ],
+      "max_score": 25,
+      "base_scores": [25, 20, 15, 10],
       "low_vol_bonus": 2
     },
     "offensive": {
-      "max_score": 27,
+      "max_score": 35,
       "strategy_base": {
         "强攻": 15,
-        "梯量": 11,
-        "洗盘": 4
+        "梯量": 10,
+        "洗盘": 5
       },
       "vol_ratio_bonus": [
-        {
-          "threshold": 2.0,
-          "score": 10
-        },
-        {
-          "threshold": 1.5,
-          "score": 8
-        }
+        {"threshold": 2.0, "score": 10},
+        {"threshold": 1.5, "score": 8}
       ],
       "pct_chg_bonus": [
-        {
-          "threshold": 5.0,
-          "score": 10
-        },
-        {
-          "threshold": 2.0,
-          "score": 5
-        }
+        {"threshold": 5.0, "score": 10},
+        {"threshold": 2.0, "score": 5}
       ],
       "wash_compensation": {
         "enabled": true,
@@ -85,10 +68,10 @@
     "vol_ma_period": 5
   },
   "thresholds": {
-    "SCORE_THRESHOLD_NORMAL": 80,
-    "SCORE_THRESHOLD_WASH": 61,
-    "TURNOVER_THRESHOLD_NORMAL": 1.5,
-    "TURNOVER_THRESHOLD_WASH": 0.6,
+    "SCORE_THRESHOLD_NORMAL": 60,
+    "SCORE_THRESHOLD_WASH": 50,
+    "TURNOVER_THRESHOLD_NORMAL": 1.0,
+    "TURNOVER_THRESHOLD_WASH": 0.5,
     "TOP_N_PER_STRATEGY": 5
   },
   "params": {
