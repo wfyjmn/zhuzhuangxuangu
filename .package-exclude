@@ -1,0 +1,45 @@
+# 项目打包排除文件列表
+
+# Git相关
+.git/
+.gitignore
+.gitattributes
+
+# Python缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 缓存数据
+assets/cache/logs/*.json
+*.log
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 环境变量（保护敏感信息）
+.env
+.env.local
+.env.*.local
+
+# 测试数据（可选）
+test_*.csv
+test_*.json
