@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-DeepQuant AI回测生成器 (AI Backtest Generator) - 性能优化版
+DeepQuant AI回测生成器 (AI Backtest Generator) - V5.0
+核心升级：
+1. 引入【相对收益】标签：在熊市中，跑赢大盘即为赢
+2. 添加 V5.0 参数：bear_threshold, alpha_threshold
+3. 优化候选股票筛选条件（参考代码建议）
+4. 添加 generate_dataset 便捷方法
 修复：
 1. 修正未来数据获取逻辑，确保标签计算正确（避免数据穿越）
 2. 优化数据读取，减少 IO 开销
@@ -17,7 +22,7 @@ from feature_extractor import FeatureExtractor
 
 
 class AIBacktestGenerator:
-    """AI回测生成器类（优化版）"""
+    """AI回测生成器类（V5.0 优化版）"""
 
     def __init__(self, data_dir: str = "data/daily"):
         """
@@ -29,10 +34,19 @@ class AIBacktestGenerator:
         self.warehouse = DataWarehouse(data_dir=data_dir)
         self.extractor = FeatureExtractor()
 
-        # 配置参数
+        # === 基础参数 ===
         self.hold_days = 5  # 持有天数
         self.target_return = 3.0  # 目标收益率（%）
         self.stop_loss = -5.0  # 止损（%）
+
+        # === V5.0 新增参数 ===
+        self.bear_threshold = -2.0  # 熊市判定阈值（大盘跌幅 < -2%）
+        self.alpha_threshold = 3.0  # 超额收益目标（%）
+        self.amount_threshold = 1000  # 成交额阈值（千元，即 100万元）
+
+        # === 筛选参数（参考代码建议）===
+        self.vol_ratio_attack_min = 1.2  # 放量进攻最小量比
+        self.vol_ratio_wash_max = 1.0  # 缩量洗盘最大量比
 
     def _get_future_data(self, ts_code: str, start_date: str, days: int) -> Optional[pd.DataFrame]:
         """
@@ -67,8 +81,13 @@ class AIBacktestGenerator:
         return future_df.head(days)
     def select_candidates_robust(self, daily_df: pd.DataFrame) -> List[str]:
         """
-        [关键修复3] 模拟真实的策略初筛（宽进）
+        V5.0 优化版：模拟真实的策略初筛（宽进）
         目的是选出【形态还可以】的股票，让 AI 进一步区分【真龙】还是【杂毛】
+
+        筛选逻辑（参考代码优化）：
+        1. 进攻形态：量比放大（>1.2），涨幅适中（>1%）
+        2. 洗盘形态：缩量（<1.0），微跌或微涨（-3% ~ 3%）
+        3. [V5.0 放宽] 当没有量比数据时，使用成交量作为替代
 
         Args:
             daily_df: 当日全市场数据
@@ -79,39 +98,42 @@ class AIBacktestGenerator:
         if daily_df.empty:
             return []
 
-        # 计算量比（如果没有的话）
-        if 'vol_ratio' not in daily_df.columns:
-            # 量比 = 当日成交量 / 前5日平均成交量
-            # 由于这里只有当天的数据，暂时设置默认值
-            daily_df['vol_ratio'] = 1.0
-
         # 基础过滤：非ST（通过ts_code过滤），有成交量
         mask = (
             (~daily_df['ts_code'].str.contains('ST|退', na=False)) &  # 过滤ST和退市股票
-            (daily_df['amount'] > 1000) &  # 成交额 > 1000万（单位：万元）
+            (daily_df['amount'] > self.amount_threshold) &  # 成交额 > 阈值（千元）
             (daily_df['pct_chg'] > -9.8) &    # 非跌停
             (daily_df['pct_chg'] < 9.8)       # 非涨停
         )
 
         pool = daily_df[mask].copy()
 
-        # [关键修复] 策略逻辑复刻（简化版）
-        # 场景A: 放量进攻（涨幅>1%）
-        cond_attack = (pool['pct_chg'] > 1.0)
+        # 计算量比（如果没有的话）
+        if 'vol_ratio' not in pool.columns or pool['vol_ratio'].isna().all():
+            # 使用成交量作为替代（成交量 > 75%分位视为"放量"）
+            vol_75 = pool['vol'].quantile(0.75)
+            pool['vol_ratio_calc'] = pool['vol'] / vol_75
+            vol_ratio_col = 'vol_ratio_calc'
+        else:
+            vol_ratio_col = 'vol_ratio'
 
-        # 场景B: 缩量洗盘（涨幅 -1% ~ 2%）
-        cond_wash = (pool['pct_chg'] > -1.0) & (pool['pct_chg'] < 2.0)
+        # === V5.0 优化筛选逻辑 ===
 
-        # 场景C: 梯量上涨（涨幅0-2%）
-        cond_ramp = (pool['pct_chg'] > 0) & (pool['pct_chg'] < 2.0)
+        # 场景 A: 进攻形态（放量，涨幅适中）
+        cond_attack = (
+            (pool[vol_ratio_col] > self.vol_ratio_attack_min) &  # 量比 > 1.2
+            (pool['pct_chg'] > 1.0)  # 涨幅 > 1%
+        )
+
+        # 场景 B: 洗盘形态（缩量，微跌或微涨）
+        cond_wash = (
+            (pool[vol_ratio_col] < self.vol_ratio_wash_max) &  # 量比 < 1.0
+            (pool['pct_chg'] > -3.0) &   # 涨幅 > -3%
+            (pool['pct_chg'] < 3.0)      # 涨幅 < 3%
+        )
 
         # 综合候选池
-        candidates = pool[cond_attack | cond_wash | cond_ramp]['ts_code'].tolist()
-
-        return candidates
-
-        # 综合候选池
-        candidates = pool[cond_attack | cond_wash | cond_ramp]['ts_code'].tolist()
+        candidates = pool[cond_attack | cond_wash]['ts_code'].tolist()
 
         return candidates
 
@@ -293,9 +315,13 @@ class AIBacktestGenerator:
         print(f"\n\n[完成] 生成训练数据")
         print(f"  处理交易日: {processed_days}/{total_days}")
         print(f"  总样本数: {len(X)}")
-        print(f"  正样本（盈利）: {Y.sum()} ({Y.sum()/len(Y)*100:.1f}%)")
-        print(f"  负样本（亏损）: {len(Y) - Y.sum()} ({(1-Y.sum()/len(Y))*100:.1f}%)")
-        print(f"  胜率: {Y.sum()/len(Y)*100:.2f}%")
+
+        if len(X) > 0:
+            print(f"  正样本（盈利）: {Y.sum()} ({Y.sum()/len(Y)*100:.1f}%)")
+            print(f"  负样本（亏损）: {len(Y) - Y.sum()} ({(1-Y.sum()/len(Y))*100:.1f}%)")
+            print(f"  胜率: {Y.sum()/len(Y)*100:.2f}%")
+        else:
+            print(f"  [警告] 没有生成任何样本，请检查数据或筛选条件")
 
         return X, Y
 
@@ -351,6 +377,52 @@ class AIBacktestGenerator:
                 if col not in ['ts_code', 'trade_date']:
                     f.write(f"  - {col}\n")
         print(f"[保存] 统计信息: {stats_file}")
+
+    def generate_dataset(self, start_date: str, end_date: str,
+                        max_samples: int = None) -> pd.DataFrame:
+        """
+        [V5.0 新增] 便捷方法：一步生成完整数据集（特征+标签）
+
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            max_samples: 最大样本数量（None=不限制）
+
+        Returns:
+            完整的DataFrame（包含特征列 + label列 + ts_code + trade_date）
+        """
+        print(f"\n[{'='*80}]")
+        print(f"[V5.0] 生成完整数据集")
+        print(f"[{'='*80}]")
+        print(f"  回测区间: {start_date} ~ {end_date}")
+        print(f"  持有天数: {self.hold_days}")
+        print(f"  目标收益: {self.target_return}%")
+        print(f"  止损: {self.stop_loss}%")
+        print(f"  熊市阈值: {self.bear_threshold}%")
+        print(f"  超额收益目标: {self.alpha_threshold}%")
+
+        # 生成数据
+        X, Y = self.generate_training_data(start_date, end_date, max_samples)
+
+        if len(X) == 0:
+            return pd.DataFrame()
+
+        # 合并特征和标签
+        df = X.copy()
+        df['label'] = Y.values
+
+        print(f"\n[完成] 生成完整数据集")
+        print(f"  总样本数: {len(df)}")
+        print(f"  正样本: {df['label'].sum()} ({df['label'].sum()/len(df)*100:.1f}%)")
+        print(f"  负样本: {len(df) - df['label'].sum()} ({(1-df['label'].sum()/len(df))*100:.1f}%)")
+
+        # 计算建议权重
+        pos_count = df['label'].sum()
+        neg_count = len(df) - pos_count
+        scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
+        print(f"  建议 scale_pos_weight: {scale_pos_weight:.2f}")
+
+        return df
 
     def load_training_data(self, features_file: str, labels_file: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
