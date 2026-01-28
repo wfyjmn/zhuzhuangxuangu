@@ -1,21 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-DeepQuant 特征提取器 (Feature Extractor)
-功能：
-1. 提取技术指标特征
-2. 提取基本面特征
-3. 提取市场环境特征
-4. 特征归一化处理
-
-核心特征：
-- 量比
-- 换手率
-- 市盈率
-- 乖离率（BIAS）
-- 大盘涨跌幅
-- 板块涨跌幅
-- 技术形态评分
-- 资金流向特征
+DeepQuant 特征提取器 (Feature Extractor) - 增强版
+优化：
+1. 修正斜率计算为百分比，消除高低价股差异
+2. 增加除零保护
+3. 增加波动率和位置特征
+4. 移除硬编码归一化，保留原始特征供 ML 模型处理
+5. 增强健壮性（自动路由复权价、处理NaN）
 """
 
 import pandas as pd
@@ -24,120 +15,111 @@ from typing import Dict, List, Optional
 
 
 class FeatureExtractor:
-    """特征提取器类"""
+    """特征提取器类（增强版）"""
 
     def __init__(self):
         """初始化特征提取器"""
         self.feature_names = [
+            # --- 基础量价 ---
             'vol_ratio',          # 量比
             'turnover_rate',      # 换手率
             'pe_ttm',             # 市盈率（TTM）
-            'bias_5',             # 5日乖离率
-            'bias_10',            # 10日乖离率
-            'bias_20',            # 20日乖离率
+
+            # --- 趋势特征 ---
+            'pct_chg_1d',         # 1日涨跌幅 (动量)
             'pct_chg_5d',         # 5日涨跌幅
-            'pct_chg_10d',        # 10日涨跌幅
             'pct_chg_20d',        # 20日涨跌幅
-            'ma5_slope',          # 5日均线斜率
-            'ma10_slope',         # 10日均线斜率
-            'ma20_slope',         # 20日均线斜率
-            'rsi',                # RSI指标
+            'ma5_slope',          # 5日均线斜率(%) [关键修复：百分比斜率]
+            'ma20_slope',         # 20日均线斜率(%)
+
+            # --- 偏离特征 ---
+            'bias_5',             # 5日乖离率
+            'bias_20',            # 20日乖离率
+
+            # --- 震荡特征 ---
+            'rsi_14',             # RSI指标
+            'std_20_ratio',       # 20日标准差/均价（波动率）
+
+            # --- 相对位置 ---
+            'position_20d',       # 当前价在近20天的位置(0-1)
+            'position_250d',      # 当前价在年线的位置(0-1)
+
+            # --- MACD ---
             'macd_dif',           # MACD DIF
             'macd_dea',           # MACD DEA
+            'macd_hist',          # MACD 红绿柱
+
+            # --- 环境特征 ---
             'index_pct_chg',      # 大盘涨跌幅
             'sector_pct_chg',     # 板块涨跌幅
+
+            # --- 评分系统 ---
             'moneyflow_score',    # 资金流得分
             'tech_score',         # 技术形态得分
             'new_score',          # 综合评分
         ]
 
-    def calculate_ma(self, df: pd.DataFrame, periods: List[int] = [5, 10, 20], use_qfq: bool = True) -> pd.DataFrame:
+    def _get_price_col(self, df: pd.DataFrame) -> str:
         """
-        计算移动平均线
-
-        Args:
-            df: 行情数据
-            periods: 周期列表
-            use_qfq: 是否使用复权价格（默认True，必须使用复权价格）
-
-        Returns:
-            添加了MA列的DataFrame
+        [健壮性] 自动判断使用复权价还是收盘价
+        优先级：复权价 > 收盘价
         """
-        df = df.copy()
+        if 'close_qfq' in df.columns:
+            return 'close_qfq'
+        return 'close'
 
-        # [关键修复] 必须使用复权价格计算技术指标
-        close_col = 'close_qfq' if (use_qfq and 'close_qfq' in df.columns) else 'close'
-
-        for period in periods:
-            df[f'ma{period}'] = df[close_col].rolling(window=period).mean()
-
-        return df
-
-    def calculate_bias(self, df: pd.DataFrame, periods: List[int] = [5, 10, 20]) -> pd.DataFrame:
+    def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        计算乖离率（BIAS）
-
-        Args:
-            df: 行情数据（必须包含ma列）
-            periods: 周期列表
-
-        Returns:
-            添加了BIAS列的DataFrame
+        一次性计算所有技术指标（向量化加速）
         """
         df = df.copy()
+        close_col = self._get_price_col(df)
+        price = df[close_col]
 
-        # [关键修复] 必须使用复权价格计算乖离率
-        close_col = 'close_qfq' if 'close_qfq' in df.columns else 'close'
+        # 1. 均线 (MA)
+        df['ma5'] = price.rolling(window=5).mean()
+        df['ma10'] = price.rolling(window=10).mean()
+        df['ma20'] = price.rolling(window=20).mean()
 
-        for period in periods:
-            df[f'bias_{period}'] = (df[close_col] - df[f'ma{period}']) / df[f'ma{period}'] * 100
+        # 2. 乖离率 (BIAS)
+        df['bias_5'] = (price - df['ma5']) / df['ma5'] * 100
+        df['bias_20'] = (price - df['ma20']) / df['ma20'] * 100
 
-        return df
+        # 3. [关键修复] 均线斜率 (Slope %)
+        # 计算公式：(今日MA - 昨日MA) / 昨日MA * 100
+        # 这样可以消除高价股和低价股的差异
+        df['ma5_slope'] = df['ma5'].pct_change() * 100
+        df['ma20_slope'] = df['ma20'].pct_change() * 100
 
-    def calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-        """
-        计算RSI指标
+        # 4. [关键修复] RSI (相对强弱) - 增加除零保护
+        delta = price.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / (loss + 1e-9)  # 避免除零
+        df['rsi_14'] = 100 - (100 / (1 + rs))
 
-        Args:
-            df: 行情数据
-            period: RSI周期
+        # 5. MACD
+        ema12 = price.ewm(span=12, adjust=False).mean()
+        ema26 = price.ewm(span=26, adjust=False).mean()
+        df['macd_dif'] = ema12 - ema26
+        df['macd_dea'] = df['macd_dif'].ewm(span=9, adjust=False).mean()
+        df['macd_hist'] = (df['macd_dif'] - df['macd_dea']) * 2
 
-        Returns:
-            添加了RSI列的DataFrame
-        """
-        df = df.copy()
+        # 6. [新增] 波动率 (20日标准差 / 均价)
+        # 衡量股价的波动程度，对判断洗盘、强攻很有帮助
+        df['std_20_ratio'] = price.rolling(20).std() / df['ma20'] * 100
 
-        # [关键修复] 必须使用复权价格计算RSI
-        close_col = 'close_qfq' if 'close_qfq' in df.columns else 'close'
+        # 7. [新增] 相对位置 (Position)
+        # 计算当前价格在过去一段时间内的相对位置 (0-1)
+        # 0 = 最低点, 1 = 最高点
+        # 对判断股票所处阶段（吸筹、拉升、出货）非常有帮助
+        low_20 = price.rolling(20).min()
+        high_20 = price.rolling(20).max()
+        df['position_20d'] = (price - low_20) / (high_20 - low_20 + 1e-9)
 
-        delta = df[close_col].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        df['rsi'] = 100 - (100 / (1 + rs))
-
-        return df
-
-    def calculate_macd(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        计算MACD指标
-
-        Args:
-            df: 行情数据
-
-        Returns:
-            添加了MACD列的DataFrame
-        """
-        df = df.copy()
-
-        # [关键修复] 必须使用复权价格计算MACD
-        close_col = 'close_qfq' if 'close_qfq' in df.columns else 'close'
-
-        df['ema12'] = df[close_col].ewm(span=12, adjust=False).mean()
-        df['ema26'] = df[close_col].ewm(span=26, adjust=False).mean()
-        df['dif'] = df['ema12'] - df['ema26']
-        df['dea'] = df['dif'].ewm(span=9, adjust=False).mean()
-        df['macd'] = (df['dif'] - df['dea']) * 2
+        low_250 = price.rolling(250).min()
+        high_250 = price.rolling(250).max()
+        df['position_250d'] = (price - low_250) / (high_250 - low_250 + 1e-9)
 
         return df
 
@@ -145,10 +127,10 @@ class FeatureExtractor:
                        sector_data: pd.DataFrame = None, tech_score: float = None,
                        moneyflow_score: float = None, new_score: float = None) -> Dict:
         """
-        提取特征向量
+        提取单只股票的特征向量
 
         Args:
-            df: 单只股票的历史行情数据（至少20天）
+            df: 股票历史数据（至少30天）
             index_data: 大盘指数数据
             sector_data: 板块数据
             tech_score: 技术形态评分
@@ -158,65 +140,63 @@ class FeatureExtractor:
         Returns:
             特征字典
         """
-        if len(df) < 20:
-            raise ValueError("数据长度不足20天")
+        # [健壮性] 确保数据长度足够
+        if len(df) < 30:
+            # 返回全0特征，避免报错中断流程
+            return {k: 0 for k in self.feature_names}
 
-        # 获取最新一天的收盘价
-        latest = df.iloc[-1]
+        # 1. 计算指标（一次性向量化计算所有指标）
+        df_ind = self.calculate_indicators(df)
+        latest = df_ind.iloc[-1]
+        close_col = self._get_price_col(df)
 
-        # 1. 基础特征
-        features = {
-            'vol_ratio': latest.get('vol_ratio', 0),
-            'turnover_rate': latest.get('turnover_rate', 0),
-            'pe_ttm': latest.get('pe_ttm', 0),
-        }
+        # 2. 组装特征
+        features = {}
 
-        # 2. 计算技术指标
-        df = self.calculate_ma(df)
-        df = self.calculate_bias(df)
-        df = self.calculate_rsi(df)
-        df = self.calculate_macd(df)
+        # --- 基础特征 ---
+        features['vol_ratio'] = latest.get('vol_ratio', 1.0)  # 默认为1
+        features['turnover_rate'] = latest.get('turnover_rate', 0.0)
+        features['pe_ttm'] = latest.get('pe_ttm', 0.0)
 
-        latest = df.iloc[-1]
+        # --- 技术特征 (直接从计算好的列取值) ---
+        tech_cols = ['bias_5', 'bias_20', 'ma5_slope', 'ma20_slope',
+                     'rsi_14', 'std_20_ratio', 'position_20d', 'position_250d',
+                     'macd_dif', 'macd_dea', 'macd_hist']
 
-        # 3. 乖离率特征
-        features['bias_5'] = latest['bias_5']
-        features['bias_10'] = latest['bias_10']
-        features['bias_20'] = latest['bias_20']
+        for col in tech_cols:
+            val = latest.get(col, 0)
+            # [健壮性] 处理 NaN 和 inf（刚上市或停牌可能导致计算出NaN）
+            features[col] = 0 if (pd.isna(val) or np.isinf(val)) else val
 
-        # 4. 涨跌幅特征（[关键修复] 必须使用复权价格）
-        close_col = 'close_qfq' if 'close_qfq' in df.columns else 'close'
-        features['pct_chg_5d'] = (latest[close_col] / df.iloc[-5][close_col] - 1) * 100 if len(df) >= 5 else 0
-        features['pct_chg_10d'] = (latest[close_col] / df.iloc[-10][close_col] - 1) * 100 if len(df) >= 10 else 0
-        features['pct_chg_20d'] = (latest[close_col] / df.iloc[-20][close_col] - 1) * 100 if len(df) >= 20 else 0
+        # --- 涨跌幅特征 ---
+        # 必须重新计算，确保是基于复权价
+        def calc_pct(days: int) -> float:
+            """计算N日涨跌幅"""
+            if len(df_ind) <= days:
+                return 0.0
+            prev = df_ind.iloc[-(days + 1)][close_col]
+            curr = latest[close_col]
+            if prev == 0:
+                return 0.0
+            return (curr - prev) / prev * 100
 
-        # 5. 均线斜率（趋势强度）
-        features['ma5_slope'] = (latest['ma5'] - df.iloc[-2]['ma5']) if len(df) >= 2 else 0
-        features['ma10_slope'] = (latest['ma10'] - df.iloc[-2]['ma10']) if len(df) >= 2 else 0
-        features['ma20_slope'] = (latest['ma20'] - df.iloc[-2]['ma20']) if len(df) >= 2 else 0
+        features['pct_chg_1d'] = latest.get('pct_chg', 0)  # 当日涨跌幅
+        features['pct_chg_5d'] = calc_pct(5)
+        features['pct_chg_20d'] = calc_pct(20)
 
-        # 6. RSI特征
-        features['rsi'] = latest['rsi']
-
-        # 7. MACD特征
-        features['macd_dif'] = latest['dif']
-        features['macd_dea'] = latest['dea']
-
-        # 8. 大盘涨跌幅（如果有）
+        # --- 环境特征 ---
+        # 取大盘和板块的最后一天涨幅
         if index_data is not None and len(index_data) > 0:
-            index_latest = index_data.iloc[-1]
-            features['index_pct_chg'] = index_latest.get('pct_chg', 0)
+            features['index_pct_chg'] = index_data.iloc[-1]['pct_chg']
         else:
             features['index_pct_chg'] = 0
 
-        # 9. 板块涨跌幅（如果有）
         if sector_data is not None and len(sector_data) > 0:
-            sector_latest = sector_data.iloc[-1]
-            features['sector_pct_chg'] = sector_latest.get('pct_chg', 0)
+            features['sector_pct_chg'] = sector_data.iloc[-1]['pct_chg']
         else:
             features['sector_pct_chg'] = 0
 
-        # 10. 评分特征
+        # --- 评分特征 ---
         features['moneyflow_score'] = moneyflow_score if moneyflow_score else 0
         features['tech_score'] = tech_score if tech_score else 0
         features['new_score'] = new_score if new_score else 0
@@ -269,43 +249,6 @@ class FeatureExtractor:
 
         return features_list
 
-    def normalize_features(self, features: Dict, method: str = 'minmax') -> Dict:
-        """
-        特征归一化
-
-        Args:
-            features: 特征字典
-            method: 归一化方法（minmax/standard）
-
-        Returns:
-            归一化后的特征字典
-        """
-        normalized = features.copy()
-
-        if method == 'minmax':
-            # Min-Max归一化（需要提前知道最大最小值）
-            # 这里使用简单的逻辑归一化
-            for key, value in features.items():
-                if key == 'ts_code':
-                    continue
-
-                if isinstance(value, (int, float)):
-                    # 简单归一化：限制在 -10 到 10 之间
-                    normalized[key] = max(-10, min(10, value / 10))
-
-        elif method == 'standard':
-            # Z-Score标准化（需要提前知道均值和方差）
-            # 这里简化处理
-            for key, value in features.items():
-                if key == 'ts_code':
-                    continue
-
-                if isinstance(value, (int, float)):
-                    # 简单标准化
-                    normalized[key] = value / 100
-
-        return normalized
-
     def get_feature_names(self) -> List[str]:
         """获取特征名称列表"""
         return self.feature_names
@@ -314,35 +257,41 @@ class FeatureExtractor:
 def main():
     """测试函数"""
     print("\n" + "="*80)
-    print(" " * 20 + "DeepQuant 特征提取器")
+    print(" " * 20 + "DeepQuant 特征提取器（增强版）")
     print(" " * 30 + "测试运行")
     print("="*80 + "\n")
 
-    # 创建模拟数据
-    dates = pd.date_range('2024-01-01', periods=30)
-    data = {
+    # 创建模拟数据（包含复权价）
+    dates = pd.date_range('2024-01-01', periods=100)
+    df = pd.DataFrame({
         'trade_date': [d.strftime('%Y%m%d') for d in dates],
-        'close': np.random.randn(30).cumsum() + 100,
-        'vol_ratio': np.random.randn(30).cumsum() + 1.5,
-        'turnover_rate': np.random.rand(30) * 10,
-        'pe_ttm': np.random.rand(30) * 50 + 10,
-    }
-    df = pd.DataFrame(data)
+        'close': np.linspace(10, 15, 100) + np.random.randn(100),  # 模拟上涨
+        'adj_factor': [1.0] * 100,
+        'vol_ratio': np.random.uniform(0.5, 2.5, 100),
+        'turnover_rate': np.random.uniform(1, 5, 100),
+        'pct_chg': np.random.randn(100)
+    })
+
+    # 构造复权价
+    df['close_qfq'] = df['close'] * df['adj_factor']
 
     # 初始化特征提取器
     extractor = FeatureExtractor()
 
     # 测试特征提取
     print("[测试] 提取特征")
-    features = extractor.extract_features(df)
+    feats = extractor.extract_features(df, new_score=85)
 
-    print(f"  特征数量: {len(features)}")
-    print(f"  特征名称: {list(features.keys())}")
+    print(f"\n[结果] 提取到 {len(feats)} 个特征:")
+    for k, v in feats.items():
+        if isinstance(v, float):
+            print(f"  {k:15s}: {v:.4f}")
+        else:
+            print(f"  {k:15s}: {v}")
 
-    # 打印部分特征
-    print("\n  部分特征值:")
-    for key, value in list(features.items())[:10]:
-        print(f"    {key}: {value:.4f}")
+    # 测试特征名称
+    print(f"\n[特征列表] 共 {len(extractor.feature_names)} 个特征:")
+    print(extractor.feature_names)
 
     print("\n[完成] 特征提取器测试完成\n")
 

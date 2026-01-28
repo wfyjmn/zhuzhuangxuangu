@@ -11,6 +11,29 @@
 
 ## 最近更新
 
+### V4.2 - 特征工程优化（2025-01-29）
+
+🎯 **四个关键问题修复**：
+
+1. **均线斜率归一化**：使用百分比斜率，消除高低价股差异（最严重问题）
+   - 修复前：茅台斜率=30元，工行斜率=0.05元，AI误判差异600倍
+   - 修复后：茅台斜率=1.5%，工行斜率=1.0%，AI正确判断趋势相似
+
+2. **RSI 除零保护**：避免连续上涨时 loss=0 导致的除零错误
+   - 修复前：可能出现 inf（无穷大）
+   - 修复后：安全的除零保护
+
+3. **删除粗暴归一化**：保留原始特征，适合 XGBoost/LightGBM
+   - 修复前：硬编码 value/10，某些特征失效
+   - 修复后：保留原始物理含义，树模型无需归一化
+
+4. **增加关键特征**：波动率和相对位置
+   - 新增 `position_20d`：短期位置，帮助判断洗盘/拉升
+   - 新增 `position_250d`：长期位置，帮助判断年线突破
+   - 新增 `std_20_ratio`：波动率，衡量市场震荡程度
+
+详细说明：见 [FeatureExtractor 优化文档](FEATURE_EXTRACTOR_OPTIMIZATION.md)
+
 ### V4.1 - 关键优化（2025-01-29）
 
 🎯 **三大核心问题修复**：
@@ -57,11 +80,12 @@
 - ✅ 批量特征提取
 - ✅ 特征归一化
 
-**特征列表**（共20个）：
-- 技术指标（14个）：vol_ratio, turnover_rate, bias_5, bias_10, bias_20, pct_chg_5d, pct_chg_10d, pct_chg_20d, ma5_slope, ma10_slope, ma20_slope, rsi, macd_dif, macd_dea
+**特征列表**（共24个）：
+- 技术指标（14个）：vol_ratio, turnover_rate, pct_chg_1d/5d/20d, ma5_slope, ma20_slope, bias_5/20, rsi_14, std_20_ratio, position_20d, position_250d, macd_dif, macd_dea, macd_hist
 - 基本面（1个）：pe_ttm
 - 市场环境（2个）：index_pct_chg, sector_pct_chg
 - 评分（3个）：moneyflow_score, tech_score, new_score
+- **新增**：波动率、相对位置特征
 
 ### 3. 回测生成器（ai_backtest_generator.py）
 

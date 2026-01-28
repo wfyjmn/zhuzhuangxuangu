@@ -34,24 +34,34 @@
     "validation_end": "20251231"
   },
   "features": {
-    "technical": [
+    "basic": [
       "vol_ratio",
       "turnover_rate",
-      "bias_5",
-      "bias_10",
-      "bias_20",
+      "pe_ttm"
+    ],
+    "trend": [
+      "pct_chg_1d",
       "pct_chg_5d",
-      "pct_chg_10d",
       "pct_chg_20d",
       "ma5_slope",
-      "ma10_slope",
-      "ma20_slope",
-      "rsi",
-      "macd_dif",
-      "macd_dea"
+      "ma20_slope"
     ],
-    "fundamental": [
-      "pe_ttm"
+    "bias": [
+      "bias_5",
+      "bias_20"
+    ],
+    "oscillation": [
+      "rsi_14",
+      "std_20_ratio"
+    ],
+    "position": [
+      "position_20d",
+      "position_250d"
+    ],
+    "macd": [
+      "macd_dif",
+      "macd_dea",
+      "macd_hist"
     ],
     "market": [
       "index_pct_chg",
@@ -62,5 +72,6 @@
       "tech_score",
       "new_score"
     ]
-  }
+  },
+  "feature_count": 24
 }
