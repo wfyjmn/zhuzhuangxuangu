@@ -1,20 +1,21 @@
 # DeepQuant 智能选股系统
 
-**版本**：V3.0
-**更新日期**：2026-01-29
+**版本**：V4.0
+**更新日期**：2025-01-29
 **状态**：✅ 生产环境
 
 ---
 
 ## 📋 项目概述
 
-DeepQuant 是一款基于技术分析和多因子模型的智能选股系统，通过两轮筛选、天气预报、多因子评分和参数优化，实现策略的持续改进。
+DeepQuant 是一款基于技术分析和多因子模型的智能选股系统，通过两轮筛选、天气预报、多因子评分、AI裁判预测和参数优化，实现策略的持续改进。
 
 ### 核心功能
 
 - ✅ **两轮筛选**：从3000+股票中筛选出精选股
 - ✅ **天气预报系统**：根据市场环境动态调整策略
 - ✅ **多因子模型**：资金流+板块共振+技术形态综合评分
+- ✅ **AI裁判系统**：使用XGBoost/LightGBM预测盈利概率
 - ✅ **遗传算法优化**：自动优化选股参数
 - ✅ **参数动态调整**：根据市场天气调整评分阈值
 
@@ -93,6 +94,10 @@ cat DeepQuant_TopPicks_YYYYMMDD.csv
 | 天气预报 | `market_weather.py` | 大势择时系统 |
 | 遗传算法 | `genetic_optimizer.py` | 参数自动优化 |
 | 主控程序 | `main_controller.py` | 协调各模块运行 |
+| 数据仓库 | `data_warehouse.py` | 历史数据管理 |
+| 特征提取器 | `feature_extractor.py` | 特征工程 |
+| 回测生成器 | `ai_backtest_generator.py` | 训练数据生成 |
+| AI裁判 | `ai_referee.py` | 机器学习分类器 |
 
 ---
 
@@ -117,6 +122,74 @@ cat DeepQuant_TopPicks_YYYYMMDD.csv
    - 风险：中等
    - 收益：中等
    - 仓位建议：10%
+
+---
+
+## 🤖 AI裁判系统
+
+### 功能概述
+
+AI裁判系统是DeepQuant V4.0的核心升级，通过机器学习分类器（XGBoost/LightGBM）替代传统的线性评分规则，利用历史回测数据训练模型，预测股票未来5天的盈利概率。
+
+### 核心能力
+
+- 🤖 **机器学习分类**：使用XGBoost/LightGBM训练二分类模型
+- 📊 **概率预测**：输出股票未来5天盈利的概率（0~1）
+- 🔍 **特征工程**：提取20个特征（技术指标、基本面、市场环境）
+- 🚫 **避免未来函数**：严格的事件驱动回测，防止数据泄露
+- 🚫 **避免幸存者偏差**：使用当时在市的股票列表
+- 📈 **特征重要性分析**：分析哪些特征对预测最重要
+
+### 特征列表
+
+| 类别 | 特征 |
+|------|------|
+| 技术指标 | 量比、换手率、5/10/20日乖离率、5/10/20日涨跌幅、均线斜率、RSI、MACD |
+| 基本面 | 市盈率（TTM） |
+| 市场环境 | 大盘涨跌幅、板块涨跌幅 |
+| 评分 | 资金流得分、技术形态得分、综合评分 |
+
+### 训练数据
+
+- **回测区间**：2023年1月1日 - 2025年12月31日
+- **持有天数**：5天
+- **目标收益**：3%
+- **止损**：-5%
+- **样本数量**：约10-20万样本
+
+### 使用方法
+
+```python
+from data_warehouse import DataWarehouse
+from feature_extractor import FeatureExtractor
+from ai_backtest_generator import AIBacktestGenerator
+from ai_referee import AIReferee
+
+# 1. 下载数据（首次使用）
+warehouse = DataWarehouse()
+warehouse.download_range_data('20230101', '20251231')
+
+# 2. 生成训练数据
+generator = AIBacktestGenerator()
+X, Y = generator.generate_training_data('20230101', '20241231')
+
+# 3. 训练模型
+referee = AIReferee(model_type='xgboost')
+referee.train(X, Y)
+
+# 4. 保存模型
+model_file = referee.save_model()
+
+# 5. 使用模型预测
+referee.load_model(model_file)
+probabilities = referee.predict(X_test)
+```
+
+### 文档
+
+- 📖 [AI裁判系统使用文档](AI_REFEREE_README.md)
+- 🧪 [AI裁判系统测试脚本](test_ai_referee.py)
+- ⚙️ [AI裁判配置文件](ai_referee_config.json)
 
 ---
 
@@ -193,6 +266,7 @@ cat DeepQuant_TopPicks_YYYYMMDD.csv
 - 📖 [天气预报系统使用文档](WEATHER_SYSTEM_README.md)
 - 📖 [多因子模型使用文档](MULTI_FACTOR_MODEL_README.md)
 - 📖 [遗传算法使用文档](GENETIC_OPTIMIZATION_README.md)
+- 📖 [AI裁判系统使用文档](AI_REFEREE_README.md)
 
 ### 测试报告
 

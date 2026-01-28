@@ -1,0 +1,66 @@
+{
+  "ai_referee": {
+    "model_type": "xgboost",
+    "model_params": {
+      "n_estimators": 100,
+      "max_depth": 6,
+      "learning_rate": 0.1,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8,
+      "random_state": 42,
+      "use_label_encoder": false,
+      "eval_metric": "logloss"
+    },
+    "training": {
+      "validation_split": 0.2,
+      "cross_validation": true,
+      "cv_folds": 5
+    }
+  },
+  "backtest": {
+    "hold_days": 5,
+    "target_return": 3.0,
+    "stop_loss": -5.0
+  },
+  "data": {
+    "data_dir": "data/daily",
+    "training_data_dir": "data/training",
+    "model_dir": "models"
+  },
+  "backtest_range": {
+    "train_start": "20230101",
+    "train_end": "20241231",
+    "validation_start": "20250101",
+    "validation_end": "20251231"
+  },
+  "features": {
+    "technical": [
+      "vol_ratio",
+      "turnover_rate",
+      "bias_5",
+      "bias_10",
+      "bias_20",
+      "pct_chg_5d",
+      "pct_chg_10d",
+      "pct_chg_20d",
+      "ma5_slope",
+      "ma10_slope",
+      "ma20_slope",
+      "rsi",
+      "macd_dif",
+      "macd_dea"
+    ],
+    "fundamental": [
+      "pe_ttm"
+    ],
+    "market": [
+      "index_pct_chg",
+      "sector_pct_chg"
+    ],
+    "score": [
+      "moneyflow_score",
+      "tech_score",
+      "new_score"
+    ]
+  }
+}
