@@ -56,13 +56,14 @@ class DataWarehouse:
         cache_file = "data/trade_calendar.csv"
         if os.path.exists(cache_file):
             df = pd.read_csv(cache_file)
-            return df['cal_date'].tolist()
+            # 确保日期为字符串类型
+            return df['cal_date'].astype(str).tolist()
 
         # 从API获取
         df = self.pro.trade_cal(exchange='SSE', start_date='20200101', end_date='20251231')
         df = df[df['is_open'] == 1]
         df.to_csv(cache_file, index=False)
-        return df['cal_date'].tolist()
+        return df['cal_date'].astype(str).tolist()
 
     def _load_basic_info(self) -> pd.DataFrame:
         """
@@ -142,8 +143,9 @@ class DataWarehouse:
 
             # 4. [优化3] 使用缓存的基础信息进行过滤（防止幸存者偏差）
             if not self.basic_info_cache.empty:
-                # 过滤：上市日期 <= 当前日期
-                valid_codes = self.basic_info_cache[self.basic_info_cache['list_date'] <= date]['ts_code']
+                # 过滤：上市日期 <= 当前日期（确保类型一致）
+                list_date_str = self.basic_info_cache['list_date'].astype(str)
+                valid_codes = self.basic_info_cache[list_date_str <= date]['ts_code']
                 df = df[df['ts_code'].isin(valid_codes)]
 
             # 保存到本地

@@ -1,0 +1,203 @@
+# -*- coding: utf-8 -*-
+"""
+下载完整历史数据（2023-01-01 至 2025-12-31）
+支持断点续传和错误重试
+"""
+
+import os
+import sys
+import time
+from datetime import datetime
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
+
+from data_warehouse import DataWarehouse
+
+def main():
+    print("="*80)
+    print(" " * 20 + "DeepQuant 数据下载")
+    print(" " * 30 + "完整版本")
+    print("="*80 + "\n")
+
+    # 检查 Tushare Token
+    tushare_token = os.getenv("TUSHARE_TOKEN")
+    if not tushare_token:
+        print("❌ 错误：未配置 TUSHARE_TOKEN 环境变量\n")
+        sys.exit(1)
+
+    print(f"✅ Tushare Token 已配置（长度: {len(tushare_token)}）\n")
+
+    # 初始化数据仓库
+    try:
+        warehouse = DataWarehouse(data_dir="data/daily")
+        print("✅ 数据仓库初始化成功\n")
+    except Exception as e:
+        print(f"❌ 数据仓库初始化失败: {e}\n")
+        sys.exit(1)
+
+    # 下载范围
+    start_date = "20230101"
+    end_date = "20251231"
+
+    # 获取交易日列表
+    trade_days = warehouse.get_trade_days(start_date, end_date)
+
+    print(f"📊 下载配置：")
+    print(f"  开始日期: {start_date}")
+    print(f"  结束日期: {end_date}")
+    print(f"  交易日总数: {len(trade_days)}")
+    print(f"  数据目录: data/daily\n")
+
+    # 检查已下载的数据
+    print("📂 检查已下载的数据...")
+    downloaded_dates = []
+    for date in trade_days:
+        filename = os.path.join("data/daily", f"{date}.csv")
+        if os.path.exists(filename):
+            downloaded_dates.append(date)
+
+    print(f"  已下载数据: {len(downloaded_dates)} 天")
+    print(f"  待下载数据: {len(trade_days) - len(downloaded_dates)} 天\n")
+
+    # 确认下载
+    if len(downloaded_dates) > 0:
+        response = input(f"⚠️  已有 {len(downloaded_dates)} 天的数据，是否继续下载剩余数据？(y/n): ")
+        if response.lower() != 'y':
+            print("\n❌ 下载已取消\n")
+            sys.exit(0)
+    else:
+        response = input(f"⚠️  这将下载约 {len(trade_days)} 天的历史数据，预计需要较长时间。是否继续？(y/n): ")
+        if response.lower() != 'y':
+            print("\n❌ 下载已取消\n")
+            sys.exit(0)
+
+    # 开始下载
+    print("\n" + "="*80)
+    print("开始下载数据...")
+    print("="*80 + "\n")
+
+    start_time = datetime.now()
+    success_count = 0
+    fail_count = 0
+    skip_count = 0
+    failed_dates = []
+
+    try:
+        for i, date in enumerate(trade_days, 1):
+            filename = os.path.join("data/daily", f"{date}.csv")
+
+            # 检查是否已下载
+            if os.path.exists(filename):
+                print(f"[{i}/{len(trade_days)}] ⏭️  {date} 已存在，跳过")
+                skip_count += 1
+                continue
+
+            print(f"[{i}/{len(trade_days)}] 📥 下载 {date}...", end=' ')
+
+            # 下载数据
+            try:
+                df = warehouse.download_daily_data(date)
+
+                if df is not None:
+                    success_count += 1
+                    print(f"✅ {len(df)} 只股票")
+                else:
+                    fail_count += 1
+                    failed_dates.append(date)
+                    print(f"❌ 失败（无数据）")
+
+                # 进度提示
+                if i % 20 == 0:
+                    elapsed = (datetime.now() - start_time).total_seconds()
+                    avg_time = elapsed / i
+                    remaining = (len(trade_days) - i) * avg_time
+                    print(f"\n  [进度] {i}/{len(trade_days)} ({i/len(trade_days)*100:.1f}%)")
+                    print(f"  [统计] 成功: {success_count}, 失败: {fail_count}, 跳过: {skip_count}")
+                    print(f"  [时间] 已用: {elapsed/60:.1f} 分钟, 预计剩余: {remaining/60:.1f} 分钟\n")
+
+                # 避免触发限流
+                time.sleep(0.3)
+
+            except KeyboardInterrupt:
+                print(f"\n\n⚠️  下载被用户中断\n")
+                break
+            except Exception as e:
+                fail_count += 1
+                failed_dates.append(date)
+                print(f"❌ 失败: {e}")
+
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
+        # 输出统计信息
+        print("\n" + "="*80)
+        print("✅ 数据下载完成！")
+        print("="*80)
+        print(f"  开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  用时: {duration/60:.1f} 分钟")
+        print(f"\n📊 下载统计：")
+        print(f"  交易日总数: {len(trade_days)}")
+        print(f"  成功下载数据: {success_count}")
+        print(f"  跳过已存在: {skip_count}")
+        print(f"  下载数据失败: {fail_count}")
+        print(f"  总计: {success_count + skip_count}/{len(trade_days)} ({(success_count + skip_count)/len(trade_days)*100:.1f}%)")
+
+        if fail_count > 0:
+            print(f"\n⚠️  失败日期列表：")
+            for date in failed_dates[:20]:  # 只显示前20个
+                print(f"    - {date}")
+            if len(failed_dates) > 20:
+                print(f"    ... 共 {len(failed_dates)} 个失败")
+
+        print()
+
+        # 检查数据完整性
+        print("="*80)
+        print("检查数据完整性...")
+        print("="*80)
+
+        missing_dates = []
+        for date in trade_days:
+            filename = os.path.join("data/daily", f"{date}.csv")
+            if not os.path.exists(filename):
+                missing_dates.append(date)
+
+        if len(missing_dates) == 0:
+            print("✅ 所有交易日数据完整！\n")
+        else:
+            print(f"⚠️  缺少 {len(missing_dates)} 天的数据")
+            print(f"  缺失日期: {missing_dates[:10]}")
+            if len(missing_dates) > 10:
+                print(f"  ... 共 {len(missing_dates)} 个缺失\n")
+            print("💡 提示：可以重新运行此脚本下载缺失的数据\n")
+
+        # 下一步提示
+        print("="*80)
+        print("下一步操作：")
+        print("="*80)
+        if len(missing_dates) == 0:
+            print("  1. ✅ 数据下载完成，可以开始生成训练数据")
+            print("     运行命令: python generate_training_data.py\n")
+        else:
+            print("  1. ⚠️  数据不完整，建议重新运行此脚本下载缺失数据\n")
+            print("  2. 或者继续生成训练数据（会有缺失的天数）")
+            print("     运行命令: python generate_training_data.py\n")
+
+    except KeyboardInterrupt:
+        print("\n\n⚠️  下载被用户中断\n")
+
+        # 保存进度
+        print(f"  当前进度: {success_count + skip_count}/{len(trade_days)} 天已完成")
+        print(f"  可以重新运行此脚本继续下载\n")
+
+    except Exception as e:
+        print(f"\n\n❌ 下载失败: {e}\n")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
