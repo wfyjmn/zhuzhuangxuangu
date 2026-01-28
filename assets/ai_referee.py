@@ -20,8 +20,7 @@ import joblib
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from feature_extractor import FeatureExtractor
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
 
 # 尝试导入XGBoost和LightGBM
@@ -53,7 +52,7 @@ class AIReferee:
         """
         self.model_type = model_type
         self.model = None
-        self.scaler = StandardScaler()
+        # [关键修复1] 删除 StandardScaler，树模型不需要标准化
         self.feature_names = None
         self.model_params = model_params or {}
 
@@ -75,7 +74,9 @@ class AIReferee:
                 'colsample_bytree': 0.8,
                 'random_state': 42,
                 'use_label_encoder': False,
-                'eval_metric': 'logloss'
+                'eval_metric': 'logloss',
+                # [关键修复4] 添加 scale_pos_weight 处理不平衡样本
+                'scale_pos_weight': 1.0  # 将在 train() 中动态设置
             }
             params.update(self.model_params)
 
@@ -90,7 +91,9 @@ class AIReferee:
                 'subsample': 0.8,
                 'colsample_bytree': 0.8,
                 'random_state': 42,
-                'verbose': -1
+                'verbose': -1,
+                # [关键修复4] 添加 is_unbalance 处理不平衡样本
+                'is_unbalance': True
             }
             params.update(self.model_params)
 
@@ -101,7 +104,8 @@ class AIReferee:
             from sklearn.linear_model import LogisticRegression
             self.model = LogisticRegression(
                 max_iter=1000,
-                random_state=42
+                random_state=42,
+                class_weight='balanced'  # 处理不平衡样本
             )
             print(f"[警告] 使用 LogisticRegression 作为后备模型")
 
@@ -119,8 +123,9 @@ class AIReferee:
         feature_cols = [col for col in X.columns if col not in ['ts_code', 'trade_date']]
         X_features = X[feature_cols].copy()
 
-        # 处理缺失值
-        X_features = X_features.fillna(0)
+        # [关键修复3] 不做 fillna(0)，保留 NaN
+        # XGBoost 和 LightGBM 原生支持缺失值，会自动学习缺失值的含义
+        # 简单粗暴填 0 会引入噪音
 
         # 记录特征名称
         self.feature_names = feature_cols
@@ -132,9 +137,9 @@ class AIReferee:
         训练模型
 
         Args:
-            X: 特征DataFrame
+            X: 特征DataFrame（必须包含 trade_date 列用于时序切分）
             Y: 标签Series
-            validation_split: 验证集比例
+            validation_split: 验证集比例（取最后 N% 的数据作为验证集）
         """
         print(f"\n[AI裁判] 开始训练模型")
         print(f"  模型类型: {self.model_type}")
@@ -144,37 +149,74 @@ class AIReferee:
         # 准备特征
         X_features = self.prepare_features(X)
 
-        # 划分训练集和验证集
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_features, Y,
-            test_size=validation_split,
-            random_state=42,
-            stratify=Y
-        )
+        # [关键修复2] 使用时序切分，避免数据泄露
+        # 训练集必须在时间上早于验证集
+        if 'trade_date' in X.columns:
+            # 按时间排序
+            X_sorted = X.sort_values('trade_date').reset_index(drop=True)
+            Y_sorted = Y.loc[X_sorted.index].reset_index(drop=True)
 
-        # 特征标准化
-        X_train_scaled = self.scaler.fit_transform(X_train)
-        X_val_scaled = self.scaler.transform(X_val)
+            # 计算切分点（最后 N% 作为验证集）
+            split_idx = int(len(X_sorted) * (1 - validation_split))
+
+            X_train = X_features.loc[:split_idx].reset_index(drop=True)
+            X_val = X_features.loc[split_idx:].reset_index(drop=True)
+            y_train = Y_sorted.loc[:split_idx].reset_index(drop=True)
+            y_val = Y_sorted.loc[split_idx:].reset_index(drop=True)
+
+            print(f"  [时序切分] 训练集: {X_train['trade_date'].min()} ~ {X_train['trade_date'].max()}")
+            print(f"  [时序切分] 验证集: {X_val['trade_date'].min()} ~ {X_val['trade_date'].max()}")
+
+            # 从特征中移除 trade_date 列（只用于切分，不用于训练）
+            X_train = X_train.drop(columns=['trade_date'])
+            X_val = X_val.drop(columns=['trade_date'])
+        else:
+            print(f"  [警告] 缺少 trade_date 列，使用随机切分（可能导致数据泄露）")
+            X_train, X_val, y_train, y_val = train_test_split(
+                X_features, Y,
+                test_size=validation_split,
+                random_state=42,
+                stratify=Y
+            )
+
+        # [关键修复4] 计算正负样本权重比
+        pos_count = y_train.sum()
+        neg_count = len(y_train) - pos_count
+        scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
+
+        print(f"  [样本统计] 正样本: {pos_count}, 负样本: {neg_count}")
+        print(f"  [样本权重] scale_pos_weight: {scale_pos_weight:.2f}")
+
+        # 更新 XGBoost 的 scale_pos_weight
+        if self.model_type == 'xgboost' and XGBOOST_AVAILABLE:
+            self.model.set_params(scale_pos_weight=scale_pos_weight)
+
+        # [关键修复1] 删除特征标准化，树模型不需要
+        # X_train_scaled = self.scaler.fit_transform(X_train)
+        # X_val_scaled = self.scaler.transform(X_val)
 
         # 训练模型
         print(f"  开始训练...")
-        self.model.fit(X_train_scaled, y_train)
+        self.model.fit(X_train, y_train)
 
         # 验证模型
-        y_pred = self.model.predict(X_val_scaled)
-        y_prob = self.model.predict_proba(X_val_scaled)[:, 1]
+        y_pred = self.model.predict(X_val)
+        y_prob = self.model.predict_proba(X_val)[:, 1]
 
         # 计算评估指标
         accuracy = accuracy_score(y_val, y_pred)
-        precision = precision_score(y_val, y_pred)
-        recall = recall_score(y_val, y_pred)
-        f1 = f1_score(y_val, y_pred)
+        precision = precision_score(y_val, y_pred, zero_division=0)
+        recall = recall_score(y_val, y_pred, zero_division=0)
+        f1 = f1_score(y_val, y_pred, zero_division=0)
         auc = roc_auc_score(y_val, y_prob)
 
         # 记录训练历史
         self.training_history = {
             'train_samples': len(X_train),
             'val_samples': len(X_val),
+            'pos_samples': int(pos_count),
+            'neg_samples': int(neg_count),
+            'scale_pos_weight': scale_pos_weight,
             'accuracy': accuracy,
             'precision': precision,
             'recall': recall,
@@ -211,11 +253,11 @@ class AIReferee:
         # 准备特征
         X_features = self.prepare_features(X)
 
-        # 特征标准化
-        X_scaled = self.scaler.transform(X_features)
+        # [关键修复1] 删除特征标准化
+        # X_scaled = self.scaler.transform(X_features)
 
         # 预测概率
-        y_prob = self.model.predict_proba(X_scaled)[:, 1]
+        y_prob = self.model.predict_proba(X_features)[:, 1]
 
         # 转换为Series
         prob_series = pd.Series(y_prob, index=X.index, name='probability')
@@ -261,10 +303,10 @@ class AIReferee:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         model_file = os.path.join(model_dir, f"ai_referee_{self.model_type}_{timestamp}.pkl")
 
-        # 保存模型、标准化器、特征名称、训练历史
+        # 保存模型、特征名称、训练历史
+        # [关键修复1] 删除 scaler，树模型不需要标准化
         model_data = {
             'model': self.model,
-            'scaler': self.scaler,
             'feature_names': self.feature_names,
             'model_type': self.model_type,
             'model_params': self.model_params,
@@ -289,7 +331,7 @@ class AIReferee:
         model_data = joblib.load(model_file)
 
         self.model = model_data['model']
-        self.scaler = model_data['scaler']
+        # [关键修复1] 删除 scaler，树模型不需要标准化
         self.feature_names = model_data['feature_names']
         self.model_type = model_data['model_type']
         self.model_params = model_data['model_params']
@@ -303,22 +345,31 @@ class AIReferee:
 
     def cross_validate(self, X: pd.DataFrame, Y: pd.Series, cv: int = 5) -> Dict:
         """
-        交叉验证
+        [关键修复2] 时序交叉验证
 
         Args:
-            X: 特征DataFrame
+            X: 特征DataFrame（必须包含 trade_date 列）
             Y: 标签Series
             cv: 折数
 
         Returns:
             交叉验证结果
         """
-        print(f"\n[交叉验证] {cv}折交叉验证")
+        print(f"\n[交叉验证] {cv}折时序交叉验证")
 
         X_features = self.prepare_features(X)
-        X_scaled = self.scaler.fit_transform(X_features)
 
-        scores = cross_val_score(self.model, X_scaled, Y, cv=cv, scoring='accuracy')
+        # [关键修复2] 使用 TimeSeriesSplit 进行时序交叉验证
+        # [关键修复1] 删除标准化
+        # X_scaled = self.scaler.fit_transform(X_features)
+
+        if 'trade_date' in X.columns:
+            # 使用时序交叉验证
+            tscv = TimeSeriesSplit(n_splits=cv)
+            scores = cross_val_score(self.model, X_features, Y, cv=tscv, scoring='accuracy')
+        else:
+            print(f"  [警告] 缺少 trade_date 列，使用普通交叉验证")
+            scores = cross_val_score(self.model, X_features, Y, cv=cv, scoring='accuracy')
 
         results = {
             'mean_accuracy': scores.mean(),
