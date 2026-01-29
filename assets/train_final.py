@@ -6,7 +6,7 @@ import sys
 import logging
 import argparse
 import gc
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -16,8 +16,8 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
-    # 优先使用缓存版本
-    from data_warehouse_cached import DataWarehouse
+    # 优先使用 Turbo 版本（极速）
+    from data_warehouse_turbo import DataWarehouse
     from ai_backtest_generator import AIBacktestGenerator
     from ai_referee import AIReferee
 except ImportError as e:
@@ -92,15 +92,33 @@ def generate_real_training_data(start_date, end_date, max_candidates=50, max_sam
         dw = DataWarehouse()
         generator = AIBacktestGenerator()
 
+        # [关键优化] 预加载所有数据到内存
+        logger.info("=" * 80)
+        logger.info("【系统】预加载历史数据到内存（以空间换时间）")
+        logger.info("=" * 80)
+        logger.info(f"  任务时间范围：{start_date} ~ {end_date}")
+        logger.info(f"  需要预加载：往前推 120 天作为回溯缓冲")
+
+        # 扩展结束日期（需要未来数据打标签）
+        dt_end = datetime.strptime(end_date, '%Y%m%d')
+        extended_end = (dt_end + timedelta(days=10)).strftime('%Y%m%d')
+
+        dw.preload_data(start_date, extended_end, lookback_days=120)
+
+        if dw.memory_db is None:
+            logger.error("[错误] 数据预加载失败")
+            return None
+
         # [优化] 设置性能参数
         generator.amount_threshold = 10000  # 成交额阈值（千元）
         generator.max_candidates = max_candidates  # 每日最大候选股票数
 
-        logger.info(f"[配置] 时间范围：{start_date} ~ {end_date}")
-        logger.info(f"[配置] 成交额阈值：10000 千元（1000万元）")
-        logger.info(f"[配置] 最大候选股票：{max_candidates} 只/天")
+        logger.info(f"\n[配置]")
+        logger.info(f"  时间范围：{start_date} ~ {end_date}")
+        logger.info(f"  成交额阈值：10000 千元（1000万元）")
+        logger.info(f"  最大候选股票：{max_candidates} 只/天")
         if max_samples:
-            logger.info(f"[配置] 最大样本数：{max_samples}")
+            logger.info(f"  最大样本数：{max_samples}")
 
         # 检查交易日历
         calendar = dw.get_trade_days(start_date, end_date)
