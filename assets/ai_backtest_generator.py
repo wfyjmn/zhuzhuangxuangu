@@ -235,6 +235,13 @@ class AIBacktestGenerator:
         trade_days = self.warehouse.get_trade_days(start_date, end_date)
 
         # [关键修复1] 排除最后N天（无法计算未来收益）
+        # 需要至少 hold_days + 2 天的数据用于计算未来收益
+        min_required_days = self.hold_days + 2
+
+        if len(trade_days) <= min_required_days:
+            print(f"\n[警告] 交易日数量不足：{len(trade_days)} 天（需要至少 {min_required_days + 1} 天才能生成样本）")
+            return pd.DataFrame(), pd.Series()
+
         valid_days = trade_days[:-(self.hold_days + 2)]
 
         features_list = []
