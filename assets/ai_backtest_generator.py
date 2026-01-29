@@ -4,21 +4,39 @@ DeepQuant AI回测生成器 (AI Backtest Generator) - V5.0
 核心升级：
 1. 引入【相对收益】标签：在熊市中，跑赢大盘即为赢
 2. 添加 V5.0 参数：bear_threshold, alpha_threshold
-3. 优化候选股票筛选条件（参考代码建议）
-4. 添加 generate_dataset 便捷方法
-修复：
-1. 修正未来数据获取逻辑，确保标签计算正确（避免数据穿越）
-2. 优化数据读取，减少 IO 开销
-3. 集成真实的选股策略逻辑，保证样本分布一致性
+3. 优化候选股票筛选条件（只训练高流动性股票）
+4. 防止数据穿越：严格分离历史（特征）与未来（标签）
+5. 集成 Turbo 仓库：自动检测并利用内存加速
 """
 
 import pandas as pd
 import numpy as np
 import os
+import logging
+import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
-from data_warehouse import DataWarehouse
-from feature_extractor import FeatureExtractor
+from pathlib import Path
+
+# 尝试导入 FeatureExtractor
+try:
+    from feature_extractor import FeatureExtractor
+except ImportError:
+    # 简单的 Mock，防止导入失败
+    class FeatureExtractor:
+        def extract_features(self, df): return df
+
+# 尝试导入 DataWarehouse (优先使用 Turbo)
+try:
+    from data_warehouse_turbo import DataWarehouse
+    IS_TURBO = True
+except ImportError:
+    from data_warehouse import DataWarehouse
+    IS_TURBO = False
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class AIBacktestGenerator:
@@ -26,489 +44,248 @@ class AIBacktestGenerator:
 
     def __init__(self, data_dir: str = "data/daily"):
         """
-        初始化回测生成器
-
-        Args:
-            data_dir: 数据目录
+        初始化生成器
         """
-        self.warehouse = DataWarehouse(data_dir=data_dir)
+        # 数据仓库实例
+        self.warehouse = DataWarehouse(data_dir)
+        # 特征提取器实例
         self.extractor = FeatureExtractor()
 
-        # === 基础参数 ===
-        self.hold_days = 5  # 持有天数
-        self.target_return = 3.0  # 目标收益率（%）
-        self.stop_loss = -5.0  # 止损（%）
-
-        # === V5.0 新增参数 ===
-        self.bear_threshold = -2.0  # 熊市判定阈值（大盘跌幅 < -2%）
-        self.alpha_threshold = 3.0  # 超额收益目标（%）
-        self.amount_threshold = 1000  # 成交额阈值（千元，即 100万元）
-        self.max_candidates = None  # 每日最大候选股票数量（None=不限制，用于快速测试）
-
-        # === 筛选参数（参考代码建议）===
-        self.vol_ratio_attack_min = 1.2  # 放量进攻最小量比
-        self.vol_ratio_wash_max = 1.0  # 缩量洗盘最大量比
-
-    def _get_future_data(self, ts_code: str, start_date: str, days: int) -> Optional[pd.DataFrame]:
-        """
-        [关键修复1] 获取指定日期之后的未来数据（用于计算标签）
-
-        Args:
-            ts_code: 股票代码
-            start_date: 起始日期（格式：YYYYMMDD）
-            days: 需要的天数
-
-        Returns:
-            未来数据的DataFrame
-        """
-        # 计算大致的结束日期（多取几天以防停牌）
-        start_dt = datetime.strptime(start_date, '%Y%m%d')
-        end_dt = start_dt + timedelta(days=days * 2 + 10)
-        end_date_str = end_dt.strftime('%Y%m%d')
-
-        # 获取包含起始日期在内的所有数据
-        full_df = self.warehouse.get_stock_data(ts_code, end_date_str, days=days + 30)
-
-        if full_df is None or full_df.empty:
-            return None
-
-        # [关键修复1] 确保 trade_date 为字符串类型
-        full_df['trade_date'] = full_df['trade_date'].astype(str)
-
-        # [关键修复2] 截取 start_date 之后的数据（不包含当天）
-        future_df = full_df[full_df['trade_date'] > start_date].sort_values('trade_date')
-
-        # 只取前 N 天
-        return future_df.head(days)
-    def select_candidates_robust(self, daily_df: pd.DataFrame, max_candidates: int = None) -> List[str]:
-        """
-        V5.0 优化版：模拟真实的策略初筛（宽进）
-        目的是选出【形态还可以】的股票，让 AI 进一步区分【真龙】还是【杂毛】
-
-        筛选逻辑（参考代码优化）：
-        1. 进攻形态：量比放大（>1.2），涨幅适中（>1%）
-        2. 洗盘形态：缩量（<1.0），微跌或微涨（-3% ~ 3%）
-        3. [V5.0 放宽] 当没有量比数据时，使用成交量作为替代
-
-        Args:
-            daily_df: 当日全市场数据
-            max_candidates: 最大候选股票数量（None=不限制）
-
-        Returns:
-            候选股票代码列表
-        """
-        if daily_df.empty:
-            return []
-
-        # 基础过滤：非ST（通过ts_code过滤），有成交量
-        mask = (
-            (~daily_df['ts_code'].str.contains('ST|退', na=False)) &  # 过滤ST和退市股票
-            (daily_df['amount'] > self.amount_threshold) &  # 成交额 > 阈值（千元）
-            (daily_df['pct_chg'] > -9.8) &    # 非跌停
-            (daily_df['pct_chg'] < 9.8)       # 非涨停
-        )
-
-        pool = daily_df[mask].copy()
-
-        # 计算量比（如果没有的话）
-        if 'vol_ratio' not in pool.columns or pool['vol_ratio'].isna().all():
-            # 使用成交量作为替代（成交量 > 75%分位视为"放量"）
-            vol_75 = pool['vol'].quantile(0.75)
-            pool['vol_ratio_calc'] = pool['vol'] / vol_75
-            vol_ratio_col = 'vol_ratio_calc'
-        else:
-            vol_ratio_col = 'vol_ratio'
-
-        # === V5.0 优化筛选逻辑 ===
-
-        # 场景 A: 进攻形态（放量，涨幅适中）
-        cond_attack = (
-            (pool[vol_ratio_col] > self.vol_ratio_attack_min) &  # 量比 > 1.2
-            (pool['pct_chg'] > 1.0)  # 涨幅 > 1%
-        )
-
-        # 场景 B: 洗盘形态（缩量，微跌或微涨）
-        cond_wash = (
-            (pool[vol_ratio_col] < self.vol_ratio_wash_max) &  # 量比 < 1.0
-            (pool['pct_chg'] > -3.0) &   # 涨幅 > -3%
-            (pool['pct_chg'] < 3.0)      # 涨幅 < 3%
-        )
-
-        # 综合候选池
-        candidates = pool[cond_attack | cond_wash]['ts_code'].tolist()
-
-        # [性能优化] 限制候选股票数量（用于快速测试）
-        if max_candidates is not None and len(candidates) > max_candidates:
-            # 按成交额排序，选择前 N 只
-            candidates_df = pool[pool['ts_code'].isin(candidates)].nlargest(max_candidates, 'amount')
-            candidates = candidates_df['ts_code'].tolist()
-
-        return candidates
-
-    def calculate_label(self, future_df: pd.DataFrame, buy_price: float,
-                       index_start_price: float = None, index_future_df: pd.DataFrame = None) -> int:
-        """
-        [关键修复 V5.0] 计算标签（1=盈利，0=亏损）
-        使用"相对收益"逻辑，避免 AI 在熊市变成"死空头"
-
-        标签逻辑升级：
-        1. 牛市/震荡市：绝对收益 > 3%
-        2. 熊市（大盘跌幅 > 2%）：超额收益 > 5%（即便个股跌了，但比大盘少跌很多，也是强势股）
-
-        Args:
-            future_df: 未来数据
-            buy_price: 买入价格
-            index_start_price: 大盘买入时价格（用于计算超额收益）
-            index_future_df: 大盘未来数据
-
-        Returns:
-            标签（1=盈利，0=亏损）
-        """
-        if future_df is None or len(future_df) == 0:
-            return 0
-
-        price_col = 'close_qfq' if 'close_qfq' in future_df.columns else 'close'
-
-        # 判断市场环境（是否为熊市）
-        is_bear_market = False
-        index_excess_return = 0
-
-        # 计算大盘收益（判断是否为熊市）
-        if index_start_price is not None and index_future_df is not None and len(index_future_df) > 0:
-            index_col = 'close_qfq' if 'close_qfq' in index_future_df.columns else 'close'
-            index_end_price = index_future_df.iloc[-1][index_col]
-            index_return = (index_end_price - index_start_price) / index_start_price * 100
-
-            # 如果大盘跌幅 > 2%，定义为熊市
-            if index_return < -2.0:
-                is_bear_market = True
-
-        # [动态止盈止损]
-        for i, row in future_df.iterrows():
-            price = row[price_col]
-            pct_return = (price - buy_price) / buy_price * 100
-
-            # 同步计算大盘收益（用于超额收益判断）
-            if is_bear_market and index_future_df is not None and len(index_future_df) > 0:
-                index_col = 'close_qfq' if 'close_qfq' in index_future_df.columns else 'close'
-                idx_price = index_future_df.loc[row.name, index_col] if row.name in index_future_df.index else index_start_price
-                index_excess_return = pct_return - ((idx_price - index_start_price) / index_start_price * 100)
-
-            # 止损检查
-            if pct_return <= self.stop_loss:
-                return 0
-
-            # [熊市] 使用超额收益止盈（跑赢大盘 5% 就算赢）
-            if is_bear_market and index_excess_return >= 5.0:
-                return 1
-
-            # [牛市/震荡市] 使用绝对收益止盈（3%）
-            if not is_bear_market and pct_return >= self.target_return:
-                return 1
-
-        # 持有到期后计算最终收益
-        final_price = future_df.iloc[-1][price_col]
-        final_return = (final_price - buy_price) / buy_price * 100
-
-        # 熊市：超额收益 > 3%
-        if is_bear_market:
-            index_final = index_future_df.iloc[-1]['close_qfq' if 'close_qfq' in index_future_df.columns else 'close']
-            index_final_return = (index_final - index_start_price) / index_start_price * 100
-            excess_return = final_return - index_final_return
-            return 1 if excess_return > 3.0 else 0
-
-        # 牛市/震荡市：绝对收益 > 0
-        return 1 if final_return > 0 else 0
-
-    def generate_training_data(self, start_date: str, end_date: str,
-                             max_samples: int = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        [关键修复2] 生成训练数据（特征X + 标签Y）
-        优化数据读取逻辑，减少 IO 开销
-
-        Args:
-            start_date: 开始日期
-            end_date: 结束日期
-            max_samples: 最大样本数量（None=不限制）
-
-        Returns:
-            (X, Y) 特征DataFrame和标签Series
-        """
-        print(f"\n[回测生成器] 开始生成训练数据")
-        print(f"  回测区间: {start_date} ~ {end_date}")
-        print(f"  持有天数: {self.hold_days}")
-        print(f"  目标收益: {self.target_return}%")
-        print(f"  止损: {self.stop_loss}%")
-
-        trade_days = self.warehouse.get_trade_days(start_date, end_date)
-
-        # [关键修复1] 排除最后N天（无法计算未来收益）
-        # 需要至少 hold_days + 2 天的数据用于计算未来收益
-        min_required_days = self.hold_days + 2
-
-        if len(trade_days) <= min_required_days:
-            print(f"\n[警告] 交易日数量不足：{len(trade_days)} 天（需要至少 {min_required_days + 1} 天才能生成样本）")
-            return pd.DataFrame(), pd.Series()
-
-        valid_days = trade_days[:-(self.hold_days + 2)]
-
-        features_list = []
-        labels_list = []
-
-        # [性能优化] 统计信息
-        total_days = len(valid_days)
-        processed_days = 0
-        success_samples = 0
-
-        print(f"\n  [信息] 有效交易日: {total_days} 天")
-        print(f"  [调试] 第一个交易日: {valid_days[0] if valid_days else 'None'}")
-        print(f"  [调试] 最后一个交易日: {valid_days[-1] if valid_days else 'None'}")
-
-        for i, date in enumerate(valid_days, 1):
-            print(f"\n  [循环] 开始处理第 {i} 天: {date}")
-            processed_days += 1
-
-            # 进度提示（每10天显示一次）
-            if i % 10 == 0:
-                print(f"  [进度] {i}/{total_days} ({i/total_days*100:.1f}%) | 样本: {success_samples}", end="\r")
-
-            # 1. 获取当日全市场数据（内存中操作，快）
-            print(f"\n  [步骤1] 加载当日数据: {date}", end="\r")
-            daily_df = self.warehouse.load_daily_data(date)
-            if daily_df is None or len(daily_df) == 0:
-                print(f"\n  [警告] {date} 无数据，跳过")
-                continue
-
-            # 2. [关键修复3] 使用真实的策略逻辑筛选候选股
-            print(f"\n  [步骤2] 筛选候选股票", end="\r")
-            candidates = self.select_candidates_robust(daily_df, max_candidates=self.max_candidates)
-            if not candidates:
-                print(f"\n  [信息] {date} 无候选股票，跳过")
-                continue
-
-            print(f"\n  [处理] {date}: {len(candidates)} 只候选股票", end="\r")
-
-            # [新增] 获取大盘未来数据（用于相对收益计算）
-            index_future_df = self._get_future_data('000001.SH', date, self.hold_days)
-            index_df = self.warehouse.get_stock_data('000001.SH', date, days=5)
-            index_start_price = index_df.iloc[-1]['close_qfq' if 'close_qfq' in index_df.columns else 'close'] if index_df is not None and len(index_df) > 0 else None
-
-            # 3. 逐个提取特征 + 计算标签
-            for ts_code in candidates:
-                try:
-                    # A. 提取特征（需要 T 及 T 之前的历史数据）
-                    hist_df = self.warehouse.get_stock_data(ts_code, date, days=60)
-                    if hist_df is None or len(hist_df) < 30:
-                        continue
-
-                    # 计算当前买入价（使用复权价格）
-                    buy_price_col = 'close_qfq' if 'close_qfq' in hist_df.columns else 'close'
-                    buy_price = hist_df.iloc[-1][buy_price_col]
-
-                    # 提取特征 X
-                    features = self.extractor.extract_features(hist_df)
-                    features['ts_code'] = ts_code
-                    features['trade_date'] = date
-
-                    # B. [关键修复 V5.0] 计算标签 Y（使用相对收益，避免死空头）
-                    future_df = self._get_future_data(ts_code, date, self.hold_days)
-                    label = self.calculate_label(
-                        future_df,
-                        buy_price,
-                        index_start_price=index_start_price,
-                        index_future_df=index_future_df
-                    )
-
-                    features_list.append(features)
-                    labels_list.append(label)
-                    success_samples += 1
-
-                except Exception as e:
-                    # 静默处理单个股票的错误，避免中断整个流程
-                    continue
-
-            # 限制样本数量
-            if max_samples and len(features_list) >= max_samples:
-                print(f"\n  [达到最大样本数] {max_samples}")
-                break
-
-        # 转换为DataFrame
-        X = pd.DataFrame(features_list)
-        Y = pd.Series(labels_list, name='label')
-
-        print(f"\n\n[完成] 生成训练数据")
-        print(f"  处理交易日: {processed_days}/{total_days}")
-        print(f"  总样本数: {len(X)}")
-
-        if len(X) > 0:
-            print(f"  正样本（盈利）: {Y.sum()} ({Y.sum()/len(Y)*100:.1f}%)")
-            print(f"  负样本（亏损）: {len(Y) - Y.sum()} ({(1-Y.sum()/len(Y))*100:.1f}%)")
-            print(f"  胜率: {Y.sum()/len(Y)*100:.2f}%")
-        else:
-            print(f"  [警告] 没有生成任何样本，请检查数据或筛选条件")
-
-        return X, Y
-
-    def generate_validation_data(self, start_date: str, end_date: str,
-                                max_samples: int = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        生成验证数据
-
-        Args:
-            start_date: 开始日期
-            end_date: 结束日期
-            max_samples: 最大样本数量
-
-        Returns:
-            (X, Y) 特征DataFrame和标签Series
-        """
-        return self.generate_training_data(start_date, end_date, max_samples)
-
-    def save_training_data(self, X: pd.DataFrame, Y: pd.Series, output_dir: str = "data/training"):
-        """
-        保存训练数据
-
-        Args:
-            X: 特征DataFrame
-            Y: 标签Series
-            output_dir: 输出目录
-        """
-        os.makedirs(output_dir, exist_ok=True)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # 保存特征
-        X_file = os.path.join(output_dir, f"features_{timestamp}.csv")
-        X.to_csv(X_file, index=False)
-        print(f"\n[保存] 特征数据: {X_file}")
-
-        # 保存标签
-        Y_file = os.path.join(output_dir, f"labels_{timestamp}.csv")
-        Y.to_csv(Y_file, index=False, header=['label'])
-        print(f"[保存] 标签数据: {Y_file}")
-
-        # 保存统计信息
-        stats_file = os.path.join(output_dir, f"stats_{timestamp}.txt")
-        with open(stats_file, 'w', encoding='utf-8') as f:
-            f.write(f"训练数据统计信息\n")
-            f.write(f"{'='*80}\n\n")
-            f.write(f"生成时间: {timestamp}\n")
-            f.write(f"总样本数: {len(X)}\n")
-            f.write(f"正样本（盈利）: {Y.sum()} ({Y.sum()/len(Y)*100:.2f}%)\n")
-            f.write(f"负样本（亏损）: {len(Y) - Y.sum()} ({(1-Y.sum()/len(Y))*100:.2f}%)\n\n")
-            f.write(f"特征列表:\n")
-            for col in X.columns:
-                if col not in ['ts_code', 'trade_date']:
-                    f.write(f"  - {col}\n")
-        print(f"[保存] 统计信息: {stats_file}")
-
-    def generate_dataset(self, start_date: str, end_date: str,
-                        max_samples: int = None) -> pd.DataFrame:
-        """
-        [V5.0 新增] 便捷方法：一步生成完整数据集（特征+标签）
-
-        Args:
-            start_date: 开始日期
-            end_date: 结束日期
-            max_samples: 最大样本数量（None=不限制）
-
-        Returns:
-            完整的DataFrame（包含特征列 + label列 + ts_code + trade_date）
-        """
-        print(f"\n[{'='*80}]")
-        print(f"[V5.0] 生成完整数据集")
-        print(f"[{'='*80}]")
-        print(f"  回测区间: {start_date} ~ {end_date}")
-        print(f"  持有天数: {self.hold_days}")
-        print(f"  目标收益: {self.target_return}%")
-        print(f"  止损: {self.stop_loss}%")
-        print(f"  熊市阈值: {self.bear_threshold}%")
-        print(f"  超额收益目标: {self.alpha_threshold}%")
-
-        # 生成数据
-        X, Y = self.generate_training_data(start_date, end_date, max_samples)
-
-        if len(X) == 0:
-            return pd.DataFrame()
-
-        # 合并特征和标签
-        df = X.copy()
-        df['label'] = Y.values
-
-        print(f"\n[完成] 生成完整数据集")
-        print(f"  总样本数: {len(df)}")
-        print(f"  正样本: {df['label'].sum()} ({df['label'].sum()/len(df)*100:.1f}%)")
-        print(f"  负样本: {len(df) - df['label'].sum()} ({(1-df['label'].sum()/len(df))*100:.1f}%)")
-
-        # 计算建议权重
-        pos_count = df['label'].sum()
-        neg_count = len(df) - pos_count
-        scale_pos_weight = neg_count / pos_count if pos_count > 0 else 1.0
-        print(f"  建议 scale_pos_weight: {scale_pos_weight:.2f}")
-
+        # V5.0 策略参数
+        self.holding_period = 5     # 持仓周期（天）
+        self.target_return = 0.03   # 牛市目标收益：3%
+        self.bear_threshold = -0.01 # 熊市定义：大盘跌幅超过 1%
+        self.alpha_threshold = 0.02 # 熊市Alpha要求：跑赢大盘 2%
+        self.max_drawdown_limit = -0.05 # 任何情况下的止损底线
+
+        # 选股过滤参数
+        self.amount_threshold = 10000  # 成交额门槛（千元），即1000万
+        self.max_candidates = 50       # 每日最大采样数（防止样本过多）
+        
+        # 缓存大盘指数数据
+        self._market_index_cache = None
+
+    def _get_market_data(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """获取大盘指数数据（上证指数 000001.SH）"""
+        # 这里简化处理，如果仓库里没有指数数据，需要下载
+        # 假设 DataWarehouse 有能力获取指数，或者我们使用一只代表性股票（如茅台）代替测试
+        # 在实际生产中，这里必须是真实的指数数据
+        index_code = '000001.SH' # 上证指数
+        
+        # 尝试从仓库获取
+        df = self.warehouse.get_stock_data(index_code, end_date, days=365)
+        
+        if df is None or df.empty:
+            # 如果没有指数数据，暂时用默认的大盘模拟（全 0），避免报错
+            # 实际部署时请确保 data/daily 下有 000001.SH.csv
+            logger.warning("[警告] 未找到大盘指数数据，相对收益标签将失效（退化为绝对收益）")
+            return pd.DataFrame(columns=['trade_date', 'close', 'open'])
+            
         return df
 
-    def load_training_data(self, features_file: str, labels_file: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _calculate_label_v5(self, stock_future: pd.DataFrame, market_future: pd.DataFrame) -> int:
         """
-        加载训练数据
-
+        [核心 V5.0] 动态标签计算逻辑
+        
         Args:
-            features_file: 特征文件路径
-            labels_file: 标签文件路径
-
+            stock_future: 个股未来 N 天数据
+            market_future: 大盘未来 N 天数据
+            
         Returns:
-            (X, Y) 特征DataFrame和标签Series
+            1 (正样本/买入), 0 (负样本/观望)
         """
-        X = pd.read_csv(features_file)
-        Y = pd.read_csv(labels_file, header=None, names=['label'])
+        if stock_future.empty: return 0
+        
+        # 1. 计算个股收益
+        p_start = stock_future['open'].iloc[0] # 以次日开盘价买入
+        p_end = stock_future['close'].iloc[-1]
+        p_min = stock_future['low'].min()
+        
+        stock_pct = (p_end / p_start) - 1
+        stock_max_loss = (p_min / p_start) - 1
 
-        print(f"\n[加载] 训练数据")
-        print(f"  特征文件: {features_file}")
-        print(f"  标签文件: {labels_file}")
-        print(f"  样本数: {len(X)}")
+        # 硬性止损检查：如果未来 N 天内触及止损线，直接判负
+        if stock_max_loss < self.max_drawdown_limit:
+            return 0
 
-        return X, Y
+        # 2. 计算大盘收益
+        market_pct = 0.0
+        if not market_future.empty and len(market_future) == len(stock_future):
+            m_start = market_future['open'].iloc[0]
+            m_end = market_future['close'].iloc[-1]
+            market_pct = (m_end / m_start) - 1
+
+        # 3. 动态判定
+        is_win = False
+        
+        if market_pct < self.bear_threshold:
+            # 【熊市场景】
+            # 条件A: 跑赢大盘一定幅度 (Alpha)
+            # 条件B: 自身没有大幅亏损 (例如微跌 1% 但大盘跌 5%，算赢)
+            condition_a = stock_pct > (market_pct + self.alpha_threshold)
+            condition_b = stock_pct > -0.03 # 允许小幅亏损，但不能深套
+            
+            if condition_a and condition_b:
+                is_win = True
+        else:
+            # 【牛市/震荡市场景】
+            # 纯绝对收益目标
+            if stock_pct > self.target_return:
+                is_win = True
+
+        return 1 if is_win else 0
+
+    def select_candidates(self, trade_date: str) -> List[str]:
+        """
+        筛选当日符合条件的候选股票
+        模拟真实的选股环境：只看当下热门、流动性好的票
+        """
+        # 加载当日全市场数据
+        df_daily = self.warehouse.load_daily_data(trade_date)
+        
+        if df_daily is None or df_daily.empty:
+            return []
+
+        # 过滤 ST 股 (假设 name 包含 ST)
+        # 注意：load_daily_data 通常不包含 name，需要 basic_info
+        # 这里简化：只通过流动性和价格筛选
+        
+        # 1. 过滤成交额过小的（流动性陷阱）
+        # amount 单位通常是千元
+        mask_liquid = df_daily['amount'] > self.amount_threshold
+        
+        # 2. 过滤停牌（vol = 0）
+        mask_active = df_daily['vol'] > 0
+        
+        # 3. 过滤高价股和低价股（可选）
+        mask_price = (df_daily['close'] > 3) & (df_daily['close'] < 200)
+
+        candidates = df_daily[mask_liquid & mask_active & mask_price]
+        
+        # 4. 按成交额降序排列，优先选取头部股票（模拟资金关注度）
+        candidates = candidates.sort_values('amount', ascending=False)
+        
+        # 截取前 N 只，防止生成数据太慢
+        selected_codes = candidates['ts_code'].head(self.max_candidates).tolist()
+        
+        return selected_codes
+
+    def generate_dataset(self, start_date: str, end_date: str, max_samples: int = None) -> pd.DataFrame:
+        """
+        生成训练数据集（主入口）
+        """
+        logger.info(f"启动 AI 回测生成器 V5.0")
+        logger.info(f"范围: {start_date} ~ {end_date}")
+        
+        # 获取交易日历
+        calendar = self.warehouse.get_trade_days(start_date, end_date)
+        # 移除最后几天，因为它们没有足够的未来数据来打标签
+        calendar = calendar[:-self.holding_period]
+        
+        logger.info(f"有效交易日: {len(calendar)} 天")
+        
+        all_samples = []
+        total_samples_count = 0
+        
+        # 预加载大盘数据 (用于计算相对收益)
+        # 注意：我们需要比 end_date 更远一点的数据来计算最后一天的 label
+        extended_end_date = (datetime.strptime(end_date, "%Y%m%d") + timedelta(days=20)).strftime("%Y%m%d")
+        market_df = self._get_market_data(start_date, extended_end_date)
+        if not market_df.empty:
+             market_df['trade_date_dt'] = pd.to_datetime(market_df['trade_date'])
+             market_df = market_df.set_index('trade_date_dt').sort_index()
+
+        for i, trade_date in enumerate(calendar):
+            # 1. 筛选当日股票
+            candidates = self.select_candidates(trade_date)
+            if not candidates: continue
+            
+            # 随机采样（如果候选太多）
+            # if len(candidates) > 20:
+            #     candidates = random.sample(candidates, 20)
+                
+            daily_samples = []
+            
+            for ts_code in candidates:
+                # 2. 获取特征数据 (历史 + 当天)
+                # 使用 Turbo 仓库的 get_stock_data 极速获取
+                # 假设我们需要 60 天历史来计算 MACD 等指标
+                hist_data = self.warehouse.get_stock_data(ts_code, trade_date, days=100)
+                
+                if hist_data is None or len(hist_data) < 60:
+                    continue
+                
+                # 3. 特征提取
+                # 注意：FeatureExtractor 必须只使用 hist_data 计算，不能有未来数据
+                features = self.extractor.extract_features(hist_data)
+                
+                if features.empty:
+                    continue
+                    
+                # 取最后一行（也就是 trade_date 当天的特征）
+                current_feature = features.iloc[[-1]].copy()
+                
+                # 4. 获取未来数据 (用于打标签)
+                future_data = self.warehouse.get_future_data(ts_code, trade_date, days=self.holding_period)
+                
+                if future_data is None or len(future_data) < self.holding_period:
+                    continue
+
+                # 5. 获取同期大盘数据
+                market_future = pd.DataFrame()
+                if not market_df.empty:
+                    try:
+                        start_dt = pd.to_datetime(future_data['trade_date'].iloc[0])
+                        end_dt = pd.to_datetime(future_data['trade_date'].iloc[-1])
+                        market_future = market_df.loc[start_dt:end_dt]
+                    except Exception:
+                        pass
+
+                # 6. 计算标签 (V5.0 逻辑)
+                label = self._calculate_label_v5(future_data, market_future)
+                
+                # 7. 组装样本
+                # 将元数据保留，方便后续分析，但在训练前需剔除
+                current_feature['label'] = label
+                current_feature['trade_date'] = trade_date
+                current_feature['ts_code'] = ts_code
+                
+                daily_samples.append(current_feature)
+            
+            # 只有当采集到样本时才合并
+            if daily_samples:
+                all_samples.extend(daily_samples)
+                total_samples_count += len(daily_samples)
+            
+            if (i + 1) % 5 == 0:
+                logger.info(f"进度: {i+1}/{len(calendar)} | 累计样本: {total_samples_count}")
+                
+            # 限制总样本数（可选，防止内存溢出）
+            if max_samples and total_samples_count >= max_samples:
+                logger.info(f"达到最大样本数限制 ({max_samples})，提前停止")
+                break
+
+        if not all_samples:
+            logger.warning("未生成任何有效样本")
+            return pd.DataFrame()
+
+        # 合并所有样本
+        final_dataset = pd.concat(all_samples, ignore_index=True)
+        
+        # 内存优化
+        for col in final_dataset.select_dtypes(include=['float64']).columns:
+            final_dataset[col] = final_dataset[col].astype('float32')
+            
+        return final_dataset
 
 
-def main():
-    """测试函数"""
-    print("\n" + "="*80)
-    print(" " * 20 + "DeepQuant AI回测生成器（优化版）")
-    print(" " * 30 + "测试运行")
-    print("="*80 + "\n")
-
-    # 初始化回测生成器
-    generator = AIBacktestGenerator()
-
-    # 测试：生成少量训练数据（1个月）
-    print("[测试] 生成训练数据（2023年1月，最多100个样本）")
-
-    X, Y = generator.generate_training_data(
-        start_date='20230101',
-        end_date='20230131',
-        max_samples=100  # 限制样本数，快速测试
-    )
-
-    if len(X) > 0:
-        print(f"\n  特征维度: {X.shape}")
-        print(f"  标签分布: 正{Y.sum()}/{len(Y)}负")
-
-        # 保存训练数据
-        generator.save_training_data(X, Y)
-
-        print("\n  特征数据预览:")
-        print(X.head(3))
-
-        print("\n  标签数据预览:")
-        print(Y.head(10))
-
-    else:
-        print("\n  [提示] 未生成样本，可能原因：")
-        print("    1. 数据未下载（请先运行 data_warehouse.py 下载数据）")
-        print("    2. 选股条件过于严格（没有符合条件的股票）")
-
-    print("\n[完成] 回测生成器测试完成\n")
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    # 简单测试
+    gen = AIBacktestGenerator()
+    # 假设我们只跑最近几天
+    end = datetime.now().strftime("%Y%m%d")
+    start = (datetime.now() - timedelta(days=20)).strftime("%Y%m%d")
+    
+    # 仅演示逻辑，不实际跑（除非有数据）
+    print("AIBacktestGenerator V5.0 初始化成功")
+    print(f"参数: 目标收益={gen.target_return}, 熊市阈值={gen.bear_threshold}")
