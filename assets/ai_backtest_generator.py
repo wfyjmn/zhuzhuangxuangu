@@ -43,6 +43,7 @@ class AIBacktestGenerator:
         self.bear_threshold = -2.0  # 熊市判定阈值（大盘跌幅 < -2%）
         self.alpha_threshold = 3.0  # 超额收益目标（%）
         self.amount_threshold = 1000  # 成交额阈值（千元，即 100万元）
+        self.max_candidates = None  # 每日最大候选股票数量（None=不限制，用于快速测试）
 
         # === 筛选参数（参考代码建议）===
         self.vol_ratio_attack_min = 1.2  # 放量进攻最小量比
@@ -79,7 +80,7 @@ class AIBacktestGenerator:
 
         # 只取前 N 天
         return future_df.head(days)
-    def select_candidates_robust(self, daily_df: pd.DataFrame) -> List[str]:
+    def select_candidates_robust(self, daily_df: pd.DataFrame, max_candidates: int = None) -> List[str]:
         """
         V5.0 优化版：模拟真实的策略初筛（宽进）
         目的是选出【形态还可以】的股票，让 AI 进一步区分【真龙】还是【杂毛】
@@ -91,6 +92,7 @@ class AIBacktestGenerator:
 
         Args:
             daily_df: 当日全市场数据
+            max_candidates: 最大候选股票数量（None=不限制）
 
         Returns:
             候选股票代码列表
@@ -134,6 +136,12 @@ class AIBacktestGenerator:
 
         # 综合候选池
         candidates = pool[cond_attack | cond_wash]['ts_code'].tolist()
+
+        # [性能优化] 限制候选股票数量（用于快速测试）
+        if max_candidates is not None and len(candidates) > max_candidates:
+            # 按成交额排序，选择前 N 只
+            candidates_df = pool[pool['ts_code'].isin(candidates)].nlargest(max_candidates, 'amount')
+            candidates = candidates_df['ts_code'].tolist()
 
         return candidates
 
@@ -253,8 +261,11 @@ class AIBacktestGenerator:
         success_samples = 0
 
         print(f"\n  [信息] 有效交易日: {total_days} 天")
+        print(f"  [调试] 第一个交易日: {valid_days[0] if valid_days else 'None'}")
+        print(f"  [调试] 最后一个交易日: {valid_days[-1] if valid_days else 'None'}")
 
         for i, date in enumerate(valid_days, 1):
+            print(f"\n  [循环] 开始处理第 {i} 天: {date}")
             processed_days += 1
 
             # 进度提示（每10天显示一次）
@@ -262,14 +273,20 @@ class AIBacktestGenerator:
                 print(f"  [进度] {i}/{total_days} ({i/total_days*100:.1f}%) | 样本: {success_samples}", end="\r")
 
             # 1. 获取当日全市场数据（内存中操作，快）
+            print(f"\n  [步骤1] 加载当日数据: {date}", end="\r")
             daily_df = self.warehouse.load_daily_data(date)
             if daily_df is None or len(daily_df) == 0:
+                print(f"\n  [警告] {date} 无数据，跳过")
                 continue
 
             # 2. [关键修复3] 使用真实的策略逻辑筛选候选股
-            candidates = self.select_candidates_robust(daily_df)
+            print(f"\n  [步骤2] 筛选候选股票", end="\r")
+            candidates = self.select_candidates_robust(daily_df, max_candidates=self.max_candidates)
             if not candidates:
+                print(f"\n  [信息] {date} 无候选股票，跳过")
                 continue
+
+            print(f"\n  [处理] {date}: {len(candidates)} 只候选股票", end="\r")
 
             # [新增] 获取大盘未来数据（用于相对收益计算）
             index_future_df = self._get_future_data('000001.SH', date, self.hold_days)

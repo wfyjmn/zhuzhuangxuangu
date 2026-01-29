@@ -1,5 +1,6 @@
 """
-使用真实历史数据（2023-2024年）训练 AI 裁判模型
+使用真实历史数据（超小范围测试）训练 AI 裁判模型
+超快速版本，用于验证流程
 """
 import os
 import sys
@@ -12,7 +13,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from data_warehouse import DataWarehouse
+from data_warehouse_cached import DataWarehouse
 from ai_backtest_generator import AIBacktestGenerator
 from ai_referee import AIReferee
 
@@ -22,18 +23,18 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('train_real_data.log', encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)
 
 
-def generate_real_training_data():
+def generate_mini_training_data():
     """
-    使用真实历史数据（2023-2024年）生成训练数据集
+    使用超小范围真实历史数据（2024年1月）生成训练数据集
+    超快速版本，限制候选股票数量
     """
     print("\n" + "=" * 80)
-    print("【步骤 1】使用真实历史数据生成训练数据集")
+    print("【步骤 1】生成超小范围训练数据集（超快速测试）")
     print("=" * 80)
 
     # 初始化数据仓库
@@ -42,11 +43,18 @@ def generate_real_training_data():
     # 初始化回测生成器
     generator = AIBacktestGenerator()
 
-    # 设置时间范围：2023-01-01 至 2024-12-31
-    start_date = '20230101'
-    end_date = '20241231'
+    # [优化1] 增加成交额阈值，减少候选股票数量
+    generator.amount_threshold = 10000  # 1000万元 -> 1亿元
+
+    # [优化2] 限制每日最大候选股票数量
+    generator.max_candidates = 20  # 每天只选择前 20 只股票
+
+    # 设置时间范围：2024年1月（约20个交易日）
+    start_date = '20240101'
+    end_date = '20240131'
 
     print(f"\n[配置] 时间范围：{start_date} ~ {end_date}")
+    print(f"[优化] 成交额阈值：{generator.amount_threshold} 千元（1000万元）")
 
     # 检查交易日历
     calendar = dw.get_trade_days(start_date, end_date)
@@ -56,24 +64,17 @@ def generate_real_training_data():
         print(f"[错误] 交易日数量不足 20 个，无法生成训练数据")
         return None
 
-    # 获取股票列表（使用缓存的基础信息）
-    all_stocks = dw.basic_info_cache
-    print(f"[信息] 股票数量：{len(all_stocks)} 只")
-
-    if len(all_stocks) == 0:
-        print(f"[错误] 股票列表为空")
-        return None
-
     # 生成训练数据
     print("\n[开始] 生成训练数据...")
-    print("[提示] 这可能需要较长时间（预计 10-30 分钟）")
+    print("[提示] 预计耗时 1-3 分钟")
 
     try:
         # 使用 ai_backtest_generator 的 generate_dataset 方法
+        # 限制最大样本数为 1000，以加快测试速度
         dataset = generator.generate_dataset(
             start_date=start_date,
-            end_date=end_date
-            # 移除 min_amount 参数，该方法不支持
+            end_date=end_date,
+            max_samples=1000
         )
 
         if dataset is None or len(dataset) == 0:
@@ -91,7 +92,7 @@ def generate_real_training_data():
         output_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        data_file = output_dir / f'real_training_data_{timestamp}.csv'
+        data_file = output_dir / f'mini_training_data_{timestamp}.csv'
 
         dataset.to_csv(data_file, index=False, encoding='utf-8')
         print(f"\n[保存] 训练数据已保存：{data_file}")
@@ -105,12 +106,12 @@ def generate_real_training_data():
         return None
 
 
-def train_with_real_data(data_file):
+def train_with_mini_data(data_file):
     """
-    使用真实数据训练 AI 裁判模型
+    使用小数据训练 AI 裁判模型
     """
     print("\n" + "=" * 80)
-    print("【步骤 2】使用真实数据训练 AI 裁判模型")
+    print("【步骤 2】使用小数据训练 AI 裁判模型")
     print("=" * 80)
 
     # 初始化 AI 裁判
@@ -121,7 +122,7 @@ def train_with_real_data(data_file):
     dataset = pd.read_csv(data_file)
 
     # 分离特征和标签
-    X = dataset.drop('label', axis=1)
+    X = dataset.drop(['label', 'ts_code', 'trade_date'], axis=1)
     y = dataset['label']
 
     print(f"[信息] 特征数：{X.shape[1]}")
@@ -129,12 +130,11 @@ def train_with_real_data(data_file):
     print(f"[信息] 正样本：{y.sum()} ({y.sum()/len(y)*100:.1f}%)")
     print(f"[信息] 负样本：{(y == 0).sum()} ({(y == 0).sum()/len(y)*100:.1f}%)")
 
-    # 训练模型（时序交叉验证）
-    print("\n[开始] 训练模型（时序交叉验证，5折）...")
-    print("[提示] 这可能需要较长时间（预计 5-15 分钟）")
+    # 训练模型（时序交叉验证，2折）
+    print("\n[开始] 训练模型（时序交叉验证，2折）...")
 
     try:
-        results = referee.train_time_series(X, y, n_splits=5)
+        results = referee.train_time_series(X, y, n_splits=2)
 
         print("\n[成功] 模型训练完成")
 
@@ -151,7 +151,7 @@ def train_with_real_data(data_file):
         output_dir = project_root / 'data' / 'training'
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        model_file = output_dir / f'ai_referee_xgboost_real_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pkl'
+        model_file = output_dir / f'ai_referee_xgboost_mini_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pkl'
         referee.save_model(str(model_file))
         print(f"\n[保存] 模型已保存：{model_file}")
 
@@ -169,25 +169,28 @@ def main():
     主流程
     """
     print("=" * 80)
-    print("              AI 裁判 V5.0 真实数据训练流程")
+    print("         AI 裁判 V5.0 超快速测试流程")
     print("=" * 80)
 
     # 步骤 1：生成训练数据
-    data_file = generate_real_training_data()
+    data_file = generate_mini_training_data()
 
     if data_file is None:
         print("\n[错误] 无法生成训练数据，训练终止")
         return
 
     # 步骤 2：训练模型
-    success = train_with_real_data(data_file)
+    success = train_with_mini_data(data_file)
 
     if not success:
         print("\n[错误] 模型训练失败")
         return
 
     print("\n" + "=" * 80)
-    print("✅ 真实数据训练流程完成！")
+    print("✅ 超快速测试流程完成！")
+    print("\n下一步选项：")
+    print("  1. 如果测试成功，可以运行 train_test.py（3-10分钟）")
+    print("  2. 或直接运行 train_real_data.py（10-30分钟）")
     print("=" * 80)
 
 

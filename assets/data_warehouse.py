@@ -51,6 +51,10 @@ class DataWarehouse:
         # [优化3] 缓存股票基础信息，避免重复调用 API
         self.basic_info_cache = self._load_basic_info()
 
+        # [新增] 缓存历史数据，避免重复加载
+        self._history_data_cache = {}
+        self._history_cache_key = None
+
     def _load_trade_calendar(self) -> List[str]:
         """加载交易日历"""
         cache_file = "data/trade_calendar.csv"
