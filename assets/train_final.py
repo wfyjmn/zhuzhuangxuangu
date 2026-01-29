@@ -212,6 +212,21 @@ def train_with_real_data(data_file, n_splits=5):
         logger.info(f"[信息] 原始数据形状：{dataset.shape}")
         logger.info(f"[信息] 原始内存占用：{dataset.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB")
 
+        # -------------------------------------------------------------------------
+        # [关键修复] 强制类型转换：确保 trade_date 格式统一
+        # -------------------------------------------------------------------------
+        # Pandas 读取 CSV 时，trade_date 可能被识别为 int64 (20240101) 或 object (字符串)
+        # 这里统一转换为 int64 格式，确保排序和筛选的一致性
+        if 'trade_date' in dataset.columns:
+            original_type = dataset['trade_date'].dtype
+            dataset['trade_date'] = pd.to_numeric(dataset['trade_date'], errors='coerce').astype('Int64')
+            logger.info(f"[转换] trade_date 类型：{original_type} -> Int64 (统一格式)")
+            # 检查是否有转换失败的值
+            if dataset['trade_date'].isna().any():
+                na_count = dataset['trade_date'].isna().sum()
+                logger.warning(f"[警告] {na_count} 条记录的 trade_date 转换失败，将被丢弃")
+                dataset = dataset.dropna(subset=['trade_date'])
+
         # 内存优化
         logger.info("[优化] 压缩数据类型...")
         dataset = optimize_dataframe(dataset)
