@@ -66,21 +66,65 @@ class AIBacktestGenerator:
         self._market_index_cache = None
 
     def _get_market_data(self, start_date: str, end_date: str) -> pd.DataFrame:
-        """获取大盘指数数据（上证指数 000001.SH）"""
-        # 这里简化处理，如果仓库里没有指数数据，需要下载
-        # 假设 DataWarehouse 有能力获取指数，或者我们使用一只代表性股票（如茅台）代替测试
-        # 在实际生产中，这里必须是真实的指数数据
-        index_code = '000001.SH' # 上证指数
-        
-        # 尝试从仓库获取
-        df = self.warehouse.get_stock_data(index_code, end_date, days=365)
-        
+        """
+        [手术三] 修复"相对收益"标签：获取大盘指数数据（上证指数 000001.SH）
+
+        增强功能：
+        1. 优先从本地仓库获取
+        2. 如果本地没有，尝试临时下载
+        3. 确保数据格式正确
+        """
+        index_code = '000001.SH'  # 上证指数
+
+        # 1. 尝试从本地仓库获取
+        df = self.warehouse.get_stock_data(index_code, end_date, days=3650)  # 多取一点，覆盖 10 年
+
+        # 2. 如果仓库里没有，尝试临时下载（如果环境允许）
         if df is None or df.empty:
-            # 如果没有指数数据，暂时用默认的大盘模拟（全 0），避免报错
-            # 实际部署时请确保 data/daily 下有 000001.SH.csv
-            logger.warning("[警告] 未找到大盘指数数据，相对收益标签将失效（退化为绝对收益）")
-            return pd.DataFrame(columns=['trade_date', 'close', 'open'])
-            
+            logger.warning(f"[警告] 本地未找到指数数据 {index_code}，尝试临时下载...")
+            try:
+                import tushare as ts
+                # 从环境变量获取 Token
+                pro = ts.pro_api()
+
+                # 下载指数日线
+                df_index = pro.index_daily(ts_code=index_code, start_date=start_date, end_date=end_date)
+
+                if not df_index.empty:
+                    df_index = df_index.sort_values('trade_date')
+
+                    # 标准化列名（与股票数据一致）
+                    df_index.rename(columns={
+                        'ts_code': 'ts_code',
+                        'trade_date': 'trade_date',
+                        'open': 'open',
+                        'high': 'high',
+                        'low': 'low',
+                        'close': 'close',
+                        'vol': 'vol',
+                        'amount': 'amount'
+                    }, inplace=True)
+
+                    # 添加 trade_date_dt 列（用于时间索引）
+                    df_index['trade_date_dt'] = pd.to_datetime(df_index['trade_date'])
+
+                    logger.info(f"[成功] 临时下载指数数据 {index_code}，共 {len(df_index)} 条记录")
+
+                    return df_index
+            except Exception as e:
+                logger.error(f"[错误] 指数下载失败: {e}")
+
+        # 3. 如果还是获取不到，返回空 DataFrame
+        if df is None or df.empty:
+            logger.error("[严重] 无法获取大盘指数数据，相对收益标签将失效！")
+            logger.error(f"  建议操作：手动下载指数数据到 data/daily/{index_code}.csv")
+            logger.error(f"  或者检查 Tushare Token 权限")
+            return pd.DataFrame(columns=['trade_date', 'close', 'open', 'trade_date_dt'])
+
+        # 4. 确保有 trade_date_dt 列
+        if 'trade_date_dt' not in df.columns:
+            df['trade_date_dt'] = pd.to_datetime(df['trade_date'])
+
         return df
 
     def _calculate_label_v5(self, stock_future: pd.DataFrame, market_future: pd.DataFrame) -> int:

@@ -106,57 +106,76 @@ class DataWarehouse:
 
     def download_daily_data(self, date: str, force: bool = False) -> Optional[pd.DataFrame]:
         """
-        [优化2] 下载指定日期的全市场行情数据（包含复权因子）
+        [优化2] 下载指定日期的全市场行情数据（包含复权因子和每日指标）
+
+        [手术二] 注入灵魂：补全缺失的特征（turnover_rate, pe_ttm 等）
 
         Args:
             date: 日期（格式：YYYYMMDD）
             force: 是否强制重新下载
 
         Returns:
-            行情DataFrame（包含 adj_factor 列）
+            行情DataFrame（包含 adj_factor, turnover_rate, pe_ttm 等列）
         """
         filename = os.path.join(self.data_dir, f"{date}.csv")
 
         # 检查是否已存在
         if os.path.exists(filename) and not force:
             df = pd.read_csv(filename)
-            # 检查是否包含复权因子，如果不包含则重新下载
-            if 'adj_factor' in df.columns:
+            # 检查是否包含必需的特征（turnover_rate, pe_ttm）
+            if 'turnover_rate' in df.columns and 'pe_ttm' in df.columns:
                 return df
             else:
-                print(f"  [重新下载] {date} 的数据缺少复权因子")
+                print(f"  [重新下载] {date} 的数据缺少关键特征（turnover_rate, pe_ttm）")
 
         try:
             print(f"[数据仓库] 下载 {date} 的行情数据...")
             time.sleep(0.3)  # 避免触发限流
 
-            # 1. 获取日线行情
+            # 1. 获取日线行情 (OHLC, vol, amount)
             df_daily = self.pro.daily(trade_date=date)
 
             if df_daily.empty:
                 print(f"  [警告] {date} 没有行情数据")
                 return None
 
-            # 2. [新增] 获取复权因子
+            # 2. [手术二] 获取每日指标（turnover_rate, pe_ttm, pb, total_share 等）
+            df_basic = self.pro.daily_basic(
+                trade_date=date,
+                fields='ts_code,turnover_rate,turnover_rate_f,pe_ttm,pb,total_mv,circ_mv'
+            )
+
+            # 3. 获取复权因子
             df_adj = self.pro.adj_factor(trade_date=date)
 
-            # 3. 合并复权因子
-            df = pd.merge(df_daily, df_adj[['ts_code', 'adj_factor']], on='ts_code', how='left')
-            # 填充缺失的复权因子为 1.0
-            df['adj_factor'] = df['adj_factor'].fillna(1.0)
+            # --- 关键合并步骤 ---
+            # 合并每日指标
+            if not df_basic.empty:
+                df_daily = pd.merge(df_daily, df_basic, on='ts_code', how='left')
+                # 填充缺失值
+                df_daily['turnover_rate'] = df_daily['turnover_rate'].fillna(0)
+                df_daily['pe_ttm'] = df_daily['pe_ttm'].fillna(0)
+                df_daily['pb'] = df_daily['pb'].fillna(0)
+                df_daily['total_mv'] = df_daily['total_mv'].fillna(0)
+                df_daily['circ_mv'] = df_daily['circ_mv'].fillna(0)
+
+            # 合并复权因子
+            if not df_adj.empty:
+                df_daily = pd.merge(df_daily, df_adj[['ts_code', 'adj_factor']], on='ts_code', how='left')
+                df_daily['adj_factor'] = df_daily['adj_factor'].fillna(1.0)
 
             # 4. [优化3] 使用缓存的基础信息进行过滤（防止幸存者偏差）
             if not self.basic_info_cache.empty:
                 # 过滤：上市日期 <= 当前日期（确保类型一致）
                 list_date_str = self.basic_info_cache['list_date'].astype(str)
                 valid_codes = self.basic_info_cache[list_date_str <= date]['ts_code']
-                df = df[df['ts_code'].isin(valid_codes)]
+                df_daily = df_daily[df_daily['ts_code'].isin(valid_codes)]
 
             # 保存到本地
-            df.to_csv(filename, index=False)
-            print(f"  [完成] {date} 保存 {len(df)} 只股票的数据（含复权因子）")
+            df_daily.to_csv(filename, index=False)
+            print(f"  [完成] {date} 保存 {len(df_daily)} 只股票的数据（含复权因子、换手率、市盈率）")
 
-            return df
+            return df_daily
 
         except Exception as e:
             print(f"  [错误] 下载 {date} 失败: {e}")
