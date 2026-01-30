@@ -169,25 +169,26 @@ relative_change = stock_change_5d - market_change_5d
 
 ### 下一步行动
 
-1. **运行增量更新脚本**（约 120 分钟）
+1. **运行增量更新脚本**（约 30-50 分钟）
    ```bash
-   cd /workspace/projects/assets
-   bash run_quick_incremental_update.sh
+   cd /workspace/projects
+   ./run_quick_incremental_update.sh
    ```
 
 2. **验证数据更新**
-   - 检查 turnover_rate 和 pe_ttm 是否存在
-   - 检查数据范围是否完整
+   - 检查上证指数：`head -5 assets/data/daily/000001.SH.csv`
+   - 检查个股特征：运行验证脚本
 
 3. **重新训练模型**
    - 使用更新后的数据重新训练
-   - 预期 AUC 进一步提升至 0.60-0.65
+   - 预期 AUC 提升至 0.60-0.65
 
 ### 文档
 
+- 📖 [增量更新指南（修复版）](INCREMENTAL_UPDATE_GUIDE.md)
 - 📖 [三大手术完整指南](THREE_SURGERIES_COMPLETE_GUIDE.md)
 - 📊 [优化性能报告](SURGERY_PERFORMANCE_REPORT.md)
-- 🔧 [增量更新脚本](run_quick_incremental_update.sh)
+- 🔧 脚本位置：`/workspace/projects/run_*.sh`
 
 ---
 
