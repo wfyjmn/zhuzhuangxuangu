@@ -320,6 +320,14 @@ class MarketDataCollector:
                     # 计算涨跌幅
                     df['pct_chg'] = df['pct_chg'].round(2)
                     
+                    # 重命名列以兼容特征工程
+                    # vol -> volume, ts_code -> stock_code
+                    column_mapping = {
+                        'vol': 'volume',
+                        'ts_code': 'stock_code'
+                    }
+                    df = df.rename(columns=column_mapping)
+                    
                     # 保存缓存
                     if use_cache:
                         self._save_pickle_cache(df, cache_file)
@@ -425,7 +433,8 @@ class MarketDataCollector:
     
     def get_stock_pool_tree(self, pool_size: int = 100, market: str = None,
                            industries: List[str] = None, exclude_st: bool = True,
-                           min_days_listed: int = 30, use_cache: bool = True) -> List[str]:
+                           min_days_listed: int = 30, exclude_markets: List[str] = None,
+                           use_cache: bool = True) -> List[str]:
         """
         获取股票池（树形筛选）
         
@@ -442,6 +451,7 @@ class MarketDataCollector:
             industries: 指定行业列表，None=所有行业
             exclude_st: 是否排除ST股票
             min_days_listed: 最小上市天数
+            exclude_markets: 排除的市场列表，如 ['BJ'] 排除北交所
             use_cache: 是否使用缓存
             
         Returns:
@@ -458,6 +468,11 @@ class MarketDataCollector:
             if exclude_st:
                 df = df[~df['name'].str.contains('ST|退|暂停', na=False)]
                 logger.info(f"排除ST后剩余: {len(df)} 只股票")
+            
+            # 树形筛选第3.5层：排除指定市场（如北交所BJ）
+            if exclude_markets:
+                df = df[~df['ts_code'].str.contains('|'.join([f'\\.{m}$' for m in exclude_markets]), regex=True)]
+                logger.info(f"排除市场 {exclude_markets} 后剩余: {len(df)} 只股票")
             
             # 树形筛选第4层：排除新上市股票
             if min_days_listed > 0 and 'list_date' in df.columns:

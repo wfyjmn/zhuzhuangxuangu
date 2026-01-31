@@ -55,9 +55,10 @@ class OptunaTrainer:
         print("步骤1: 准备数据")
         print("=" * 60)
         
-        # 获取股票池
+        # 获取股票池（排除北交所BJ，避免数据不足）
         stock_codes = self.collector.get_stock_pool_tree(
-            pool_size=self.config['data']['n_stocks']
+            pool_size=self.config['data']['n_stocks'],
+            exclude_markets=['BJ']  # 排除北交所股票（数据不足）
         )
         print(f"✓ 股票池: {len(stock_codes)} 只股票")
         
