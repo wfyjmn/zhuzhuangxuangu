@@ -15,6 +15,7 @@ cffi==2.0.0
 chardet==5.2.0
 charset-normalizer==3.4.4
 click==8.3.1
+colorlog==6.10.1
 coverage==7.13.1
 coze-coding-dev-sdk==0.5.6
 coze-coding-utils==0.2.2
@@ -67,6 +68,7 @@ nvidia-nccl-cu12==2.29.2
 openai==2.15.0
 opencv-python==4.12.0.88
 openpyxl==3.1.5
+optuna==4.7.0
 orjson==3.11.5
 ormsgpack==1.12.2
 packaging==25.0

@@ -205,7 +205,7 @@ class MarketDataCollector:
     def get_daily_data(self, ts_code: str, start_date: str, end_date: str = None,
                       use_cache: bool = True) -> pd.DataFrame:
         """
-        获取单只股票日线数据（带缓存）
+        获取全维度日线数据（行情+指标+资金流）
         
         Args:
             ts_code: 股票代码
@@ -214,16 +214,16 @@ class MarketDataCollector:
             use_cache: 是否使用缓存
             
         Returns:
-            日线数据DataFrame
+            包含行情、指标、资金流的完整DataFrame
         """
-        # 检查缓存
+        # 检查缓存（使用新的缓存key以区分旧版本）
         if use_cache:
-            cache_key = self._get_cache_key('daily_data', ts_code=ts_code, 
+            cache_key = self._get_cache_key('full_data_v2', ts_code=ts_code, 
                                            start_date=start_date, end_date=end_date)
             cache_file = os.path.join(self.cache_dir, f"{cache_key}.pkl")
             cached_data = self._load_pickle_cache(cache_file)
             if cached_data is not None:
-                logger.debug(f"从缓存加载股票 {ts_code} 的日线数据")
+                logger.debug(f"从缓存加载股票 {ts_code} 的全量数据")
                 return cached_data
         
         try:
@@ -237,12 +237,75 @@ class MarketDataCollector:
             # 重试机制
             for retry in range(self.retry_count):
                 try:
-                    df = self.pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                    # 1. 基础行情 (Open, Close, Vol)
+                    df_daily = self.pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
                     
-                    if df is None or df.empty:
+                    if df_daily is None or df_daily.empty:
                         logger.warning(f"获取股票 {ts_code} 的日线数据为空")
                         return pd.DataFrame()
                     
+                    # 2. 每日指标 (Turnover_rate, PE, PB, Circ_mv)
+                    try:
+                        df_basic = self.pro.daily_basic(
+                            ts_code=ts_code, 
+                            start_date=start_date, 
+                            end_date=end_date,
+                            fields='ts_code,trade_date,turnover_rate,turnover_rate_f,circ_mv,pe_ttm,pe,pb'
+                        )
+                    except Exception as e:
+                        logger.debug(f"获取股票 {ts_code} 的 daily_basic 数据失败: {e}")
+                        df_basic = pd.DataFrame()
+                    
+                    # 3. 复权因子 (用于计算真实的均线)
+                    try:
+                        df_adj = self.pro.adj_factor(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                    except Exception as e:
+                        logger.debug(f"获取股票 {ts_code} 的复权因子数据失败: {e}")
+                        df_adj = pd.DataFrame()
+
+                    # 4. 资金流向 (必须有 Tushare 积分，如果没有会自动跳过)
+                    try:
+                        df_flow = self.pro.moneyflow(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                    except Exception as e:
+                        logger.debug(f"获取股票 {ts_code} 的资金流数据失败: {e}")
+                        df_flow = pd.DataFrame()
+
+                    # --- 数据合并 ---
+                    # 以 daily 为主表
+                    df = df_daily.copy()
+                    
+                    # 合并复权因子
+                    if not df_adj.empty:
+                        df = df.merge(df_adj, on=['ts_code', 'trade_date'], how='left')
+                    
+                    # 合并每日指标
+                    if not df_basic.empty:
+                        df = df.merge(df_basic, on=['ts_code', 'trade_date'], how='left')
+                    
+                    # 合并资金流向
+                    if not df_flow.empty:
+                        df = df.merge(df_flow, on=['ts_code', 'trade_date'], how='left')
+                        # 填充资金流空值（停牌或无数据日）
+                        flow_cols = [
+                            'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
+                            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol',
+                            'net_mf_vol', 'net_mf_amount', 'buy_sm_amount', 'sell_sm_amount',
+                            'buy_md_amount', 'sell_md_amount', 'buy_lg_amount', 'sell_lg_amount',
+                            'buy_elg_amount', 'sell_elg_amount'
+                        ]
+                        for col in flow_cols:
+                            if col in df.columns:
+                                df[col] = df[col].fillna(0)
+
+                    # 填充复权因子
+                    if 'adj_factor' in df.columns:
+                        df['adj_factor'] = df['adj_factor'].ffill().fillna(1.0)
+                    else:
+                        df['adj_factor'] = 1.0
+
+                    # 按日期排序
+                    df = df.sort_values('trade_date').reset_index(drop=True)
+
                     # 计算涨跌幅
                     df['pct_chg'] = df['pct_chg'].round(2)
                     
@@ -250,7 +313,7 @@ class MarketDataCollector:
                     if use_cache:
                         self._save_pickle_cache(df, cache_file)
                     
-                    logger.debug(f"获取股票 {ts_code} 的日线数据成功，共 {len(df)} 条")
+                    logger.debug(f"获取股票 {ts_code} 的全量数据成功，共 {len(df)} 条")
                     return df
                     
                 except Exception as e:

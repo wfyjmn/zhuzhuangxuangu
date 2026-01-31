@@ -37,53 +37,139 @@ class EnhancedFeatureEngineer:
         with open(config_file, 'r', encoding='utf-8') as f:
             return json.load(f)
 
+    def _calculate_adj_price(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        计算复权价格
+        
+        Args:
+            df: 包含 adj_factor 列的DataFrame
+            
+        Returns:
+            添加复权价格列的DataFrame
+        """
+        df = df.copy()
+        
+        # 检查是否有复权因子
+        if 'adj_factor' in df.columns:
+            # 计算前复权价格
+            df['adj_close'] = df['close'] * df['adj_factor']
+            df['adj_open'] = df['open'] * df['adj_factor']
+            df['adj_high'] = df['high'] * df['adj_factor']
+            df['adj_low'] = df['low'] * df['adj_factor']
+            print("  ✓ 使用复权价格计算技术指标")
+        else:
+            # 如果没有复权因子，使用原始价格
+            df['adj_close'] = df['close']
+            df['adj_open'] = df['open']
+            df['adj_high'] = df['high']
+            df['adj_low'] = df['low']
+            print("  ⚠ 未检测到复权因子，使用原始价格计算技术指标（可能导致信号失真）")
+        
+        return df
+
     def create_main_capital_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         创建主力资金流向特征（权重30%）
 
-        基于OBV、成交量、价格波动等代理指标
+        优先使用真实资金流数据，如果不可用则使用代理指标
         """
         df = df.copy()
 
-        # 1. 主力资金净流入率（基于OBV的改进版）
-        price_change = df['close'].diff()
-        volume = df['volume']
+        # 检查是否有真实资金流数据（特大单买入量字段是关键）
+        has_real_flow = 'buy_elg_vol' in df.columns
 
-        # 计算OBV
-        obv = (np.sign(price_change) * volume).fillna(0).cumsum()
+        if has_real_flow:
+            print("  ✓ 检测到真实资金流数据，正在计算主力特征...")
+            
+            # 1. 主力净流入金额 (特大单+大单)
+            df['main_net_inflow'] = (
+                df['buy_elg_vol'].fillna(0) + df['buy_lg_vol'].fillna(0) - 
+                df['sell_elg_vol'].fillna(0) - df['sell_lg_vol'].fillna(0)
+            )
+            
+            # 2. 主力净流入率 (净流入 / 总成交量)
+            df['main_flow_rate'] = df['main_net_inflow'] / (df['volume'] + 1)
+            
+            # 3. 主力资金连红天数
+            df['main_flow_up_days'] = (df['main_net_inflow'] > 0).astype(int)
+            df['main_flow_persistence'] = df['main_flow_up_days'].rolling(5).sum()
+            
+            # 4. 主力控盘度 (累计主力净流入 / 流通股本)
+            # 使用总成交量代替流通股本作为代理
+            df['main_control_proxy'] = (
+                df['main_net_inflow'].rolling(20).sum() / 
+                (df['volume'].rolling(20).sum() + 1)
+            )
+            
+            # 5. 主力净流入5日均值
+            df['main_net_inflow_ma5'] = df['main_net_inflow'].rolling(5).mean()
+            
+            # 6. 散户恐慌度 (小单净卖出占比)
+            df['retail_panic_ratio'] = (
+                (df['sell_sm_vol'].fillna(0) - df['buy_sm_vol'].fillna(0)) / 
+                (df['volume'] + 1)
+            )
+            
+            # 7. 大单净流入金额（基于金额数据）
+            if 'buy_elg_amount' in df.columns:
+                df['main_net_inflow_amount'] = (
+                    df['buy_elg_amount'].fillna(0) + df['buy_lg_amount'].fillna(0) - 
+                    df['sell_elg_amount'].fillna(0) - df['sell_lg_amount'].fillna(0)
+                )
+                df['main_net_inflow_amount_ma5'] = df['main_net_inflow_amount'].rolling(5).mean()
+            
+            # 8. 资金加速度（资金流入的加速度）
+            df['capital_acceleration'] = df['main_flow_rate'].diff()
+            
+            print(f"✓ 主力资金特征已创建: 基于真实资金流数据（权重30%）")
+        else:
+            print("  ⚠ 未检测到资金流数据，使用量价代理指标（效果较差）...")
+            
+            # 回退到代理指标（基于OBV）
+            price_change = df['close'].diff()
+            volume = df['volume']
 
-        # OBV变化率（主力资金流向代理）
-        df['main_capital_inflow_rate'] = obv.diff() / obv.rolling(20).std()
-        df['main_capital_inflow_ma5'] = df['main_capital_inflow_rate'].rolling(5).mean()
-        df['main_capital_inflow_ma20'] = df['main_capital_inflow_rate'].rolling(20).mean()
+            # 计算OBV
+            obv = (np.sign(price_change) * volume).fillna(0).cumsum()
 
-        # 主力资金持续性
-        df['main_capital_persistence'] = (
-            (df['main_capital_inflow_rate'] > 0).astype(int).rolling(5).sum() / 5
-        )
+            # OBV变化率（主力资金流向代理）
+            df['main_capital_inflow_rate'] = obv.diff() / (obv.rolling(20).std() + 1)
+            df['main_capital_inflow_ma5'] = df['main_capital_inflow_rate'].rolling(5).mean()
+            df['main_capital_inflow_ma20'] = df['main_capital_inflow_rate'].rolling(20).mean()
 
-        # 2. 大单净流入（基于量价关系的代理）
-        # 价格上涨时的成交量放大比例
-        price_up = df['close'] > df['open']
-        volume_avg = df['volume'].rolling(20).mean()
+            # 主力资金持续性
+            df['main_capital_persistence'] = (
+                (df['main_capital_inflow_rate'] > 0).astype(int).rolling(5).sum() / 5
+            )
 
-        df['large_order_inflow'] = np.where(
-            price_up,
-            (df['volume'] / volume_avg).clip(0.5, 3),
-            -(df['volume'] / volume_avg).clip(0.5, 3) * 0.3
-        )
+            # 大单净流入（基于量价关系的代理）
+            price_up = df['close'] > df['open']
+            volume_avg = df['volume'].rolling(20).mean()
 
-        df['large_order_inflow_ma5'] = df['large_order_inflow'].rolling(5).mean()
+            df['large_order_inflow'] = np.where(
+                price_up,
+                (df['volume'] / volume_avg).clip(0.5, 3),
+                -(df['volume'] / volume_avg).clip(0.5, 3) * 0.3
+            )
 
-        # 3. 资金集中度（成交量集中度）
-        df['volume_concentration'] = (
-            df['volume'] / df['volume'].rolling(5).mean()
-        ).rolling(5).std()
+            df['large_order_inflow_ma5'] = df['large_order_inflow'].rolling(5).mean()
 
-        # 4. 资金加速度（资金流入的加速度）
-        df['capital_acceleration'] = df['main_capital_inflow_rate'].diff()
+            # 资金集中度（成交量集中度）
+            df['volume_concentration'] = (
+                df['volume'] / df['volume'].rolling(5).mean()
+            ).rolling(5).std()
 
-        print(f"✓ 主力资金特征已创建: 8个特征（权重30%）")
+            # 资金加速度（资金流入的加速度）
+            df['capital_acceleration'] = df['main_capital_inflow_rate'].diff()
+            
+            # 为了保持特征名称一致性，添加别名
+            df['main_net_inflow'] = df['large_order_inflow']
+            df['main_flow_rate'] = df['main_capital_inflow_rate']
+            df['main_flow_persistence'] = df['main_capital_persistence'] * 5
+            df['retail_panic_ratio'] = 0.0  # 代理指标无法计算
+            
+            print(f"✓ 主力资金特征已创建: 基于代理指标（权重30%）")
+        
         return df
 
     def create_northbound_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -189,14 +275,24 @@ class EnhancedFeatureEngineer:
         创建技术指标特征（权重30%）
 
         包括趋势、动量、波动率、成交量等
+        优先使用复权价格计算，避免除权日信号失真
         """
         df = df.copy()
+        
+        # 先计算复权价格
+        df = self._calculate_adj_price(df)
+        
+        # 确定使用哪个价格列（优先复权价格）
+        price_col = 'adj_close'
+        open_col = 'adj_open'
+        high_col = 'adj_high'
+        low_col = 'adj_low'
 
         # 1. 趋势指标
-        df['ma_5'] = df['close'].rolling(5).mean()
-        df['ma_10'] = df['close'].rolling(10).mean()
-        df['ma_20'] = df['close'].rolling(20).mean()
-        df['ma_60'] = df['close'].rolling(60).mean()
+        df['ma_5'] = df[price_col].rolling(5).mean()
+        df['ma_10'] = df[price_col].rolling(10).mean()
+        df['ma_20'] = df[price_col].rolling(20).mean()
+        df['ma_60'] = df[price_col].rolling(60).mean()
 
         # 价格均线斜率
         df['ma_5_slope'] = df['ma_5'].diff(2)
@@ -209,13 +305,13 @@ class EnhancedFeatureEngineer:
         ).astype(int)
 
         # 价格站上均线
-        df['price_above_ma5'] = (df['close'] > df['ma_5']).astype(int)
-        df['price_above_ma20'] = (df['close'] > df['ma_20']).astype(int)
+        df['price_above_ma5'] = (df[price_col] > df['ma_5']).astype(int)
+        df['price_above_ma20'] = (df[price_col] > df['ma_20']).astype(int)
 
         # 2. 动量指标（RSI多周期）
-        rsi_6 = self._calculate_rsi(df['close'], 6)
-        rsi_12 = self._calculate_rsi(df['close'], 12)
-        rsi_24 = self._calculate_rsi(df['close'], 24)
+        rsi_6 = self._calculate_rsi(df[price_col], 6)
+        rsi_12 = self._calculate_rsi(df[price_col], 12)
+        rsi_24 = self._calculate_rsi(df[price_col], 24)
 
         df['rsi_6'] = rsi_6
         df['rsi_12'] = rsi_12
@@ -234,9 +330,9 @@ class EnhancedFeatureEngineer:
             (df['rsi_combination'] > df['rsi_combination'].shift(1))
         ).astype(int)
 
-        # 3. MACD指标
-        df['ema_12'] = df['close'].ewm(span=12).mean()
-        df['ema_26'] = df['close'].ewm(span=26).mean()
+        # 3. MACD指标（使用复权价格）
+        df['ema_12'] = df[price_col].ewm(span=12).mean()
+        df['ema_26'] = df[price_col].ewm(span=26).mean()
         df['macd'] = df['ema_12'] - df['ema_26']
         df['macd_signal'] = df['macd'].ewm(span=9).mean()
         df['macd_hist'] = df['macd'] - df['macd_signal']
@@ -252,10 +348,10 @@ class EnhancedFeatureEngineer:
             (df['macd'].shift(1) >= df['macd_signal'].shift(1))
         ).astype(int)
 
-        # 4. KDJ指标
-        low_9 = df['low'].rolling(9).min()
-        high_9 = df['high'].rolling(9).max()
-        rsv = (df['close'] - low_9) / (high_9 - low_9 + 0.01) * 100
+        # 4. KDJ指标（使用复权价格）
+        low_9 = df[low_col].rolling(9).min()
+        high_9 = df[high_col].rolling(9).max()
+        rsv = (df[price_col] - low_9) / (high_9 - low_9 + 0.01) * 100
         df['k_value'] = rsv.ewm(com=2).mean()
         df['d_value'] = df['k_value'].ewm(com=2).mean()
         df['j_value'] = 3 * df['k_value'] - 2 * df['d_value']
@@ -266,31 +362,31 @@ class EnhancedFeatureEngineer:
             (df['k_value'].shift(1) <= df['d_value'].shift(1))
         ).astype(int)
 
-        # 5. 波动率指标
-        df['volatility_5'] = df['close'].pct_change().rolling(5).std()
-        df['volatility_20'] = df['close'].pct_change().rolling(20).std()
+        # 5. 波动率指标（使用复权价格）
+        df['volatility_5'] = df[price_col].pct_change().rolling(5).std()
+        df['volatility_20'] = df[price_col].pct_change().rolling(20).std()
 
-        # ATR (Average True Range)
-        high_low = df['high'] - df['low']
-        high_close = np.abs(df['high'] - df['close'].shift())
-        low_close = np.abs(df['low'] - df['close'].shift())
+        # ATR (Average True Range) 使用复权价格
+        high_low = df[high_col] - df[low_col]
+        high_close = np.abs(df[high_col] - df[price_col].shift())
+        low_close = np.abs(df[low_col] - df[price_col].shift())
         true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-        df['atr_14'] = true_range.rolling(14).mean() / df['close']
+        df['atr_14'] = true_range.rolling(14).mean() / df[price_col]
 
         # 6. 成交量指标
         df['volume_ratio_5'] = df['volume'] / df['volume'].rolling(5).mean()
         df['volume_ratio_20'] = df['volume'] / df['volume'].rolling(20).mean()
 
-        # 量价关系
-        price_change = df['close'].pct_change()
+        # 量价关系（使用复权价格）
+        price_change = df[price_col].pct_change()
         volume_change = df['volume'].pct_change()
         df['volume_price_correlation'] = price_change * volume_change
 
-        # 7. 价格突破
-        df['high_20'] = df['high'].rolling(20).max()
-        df['low_20'] = df['low'].rolling(20).min()
+        # 7. 价格突破（使用复权价格）
+        df['high_20'] = df[high_col].rolling(20).max()
+        df['low_20'] = df[low_col].rolling(20).min()
         df['price_breakout_up'] = (
-            df['close'] > df['high_20'].shift(1)
+            df[price_col] > df['high_20'].shift(1)
         ).astype(int)
 
         df['price_breakdown'] = (
