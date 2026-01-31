@@ -434,7 +434,7 @@ class MarketDataCollector:
     def get_stock_pool_tree(self, pool_size: int = 100, market: str = None,
                            industries: List[str] = None, exclude_st: bool = True,
                            min_days_listed: int = 30, exclude_markets: List[str] = None,
-                           use_cache: bool = True) -> List[str]:
+                           exclude_board_types: List[str] = None, use_cache: bool = True) -> List[str]:
         """
         获取股票池（树形筛选）
         
@@ -442,6 +442,7 @@ class MarketDataCollector:
         1. 市场筛选（上海/深圳/全部）
         2. 行业筛选（指定行业或全行业）
         3. 质量筛选（排除ST、退市、暂停上市）
+        3.5 板块筛选（排除科创板、创业板等）
         4. 时间筛选（排除新上市股票）
         5. 行业均匀采样（从每个行业均匀选取）
         
@@ -452,6 +453,7 @@ class MarketDataCollector:
             exclude_st: 是否排除ST股票
             min_days_listed: 最小上市天数
             exclude_markets: 排除的市场列表，如 ['BJ'] 排除北交所
+            exclude_board_types: 排除的板块类型，如 ['688', '300'] 排除科创板、创业板
             use_cache: 是否使用缓存
             
         Returns:
@@ -473,6 +475,21 @@ class MarketDataCollector:
             if exclude_markets:
                 df = df[~df['ts_code'].str.contains('|'.join([f'\\.{m}$' for m in exclude_markets]), regex=True)]
                 logger.info(f"排除市场 {exclude_markets} 后剩余: {len(df)} 只股票")
+            
+            # 树形筛选第3.6层：排除指定板块类型（如科创板688、创业板300/301）
+            if exclude_board_types:
+                # 构建排除模式：300.*|301.* 表示排除300和301开头的创业板股票
+                patterns = []
+                for bt in exclude_board_types:
+                    if bt == '300' or bt == '301':
+                        # 创业板：300xxx 和 301xxx
+                        patterns.append(f'^{bt}')
+                    else:
+                        # 其他板块：直接匹配前缀
+                        patterns.append(f'^{bt}')
+                exclude_pattern = '|'.join(patterns)
+                df = df[~df['ts_code'].str.match(exclude_pattern)]
+                logger.info(f"排除板块 {exclude_board_types} 后剩余: {len(df)} 只股票")
             
             # 树形筛选第4层：排除新上市股票
             if min_days_listed > 0 and 'list_date' in df.columns:

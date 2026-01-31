@@ -42,7 +42,11 @@ def find_atm_threshold():
     
     print("\n⏳正在获取验证数据 (使用最近2个月数据进行校准)...")
     # 获取一部分数据用于寻找阈值
-    stock_codes = collector.get_stock_pool_tree(pool_size=100) 
+    stock_codes = collector.get_stock_pool_tree(
+        pool_size=100,
+        exclude_markets=['BJ'],
+        exclude_board_types=['688', '300', '301']  # 排除科创板（688）、创业板（300/301）
+    ) 
     df_list = []
     
     # 动态计算日期

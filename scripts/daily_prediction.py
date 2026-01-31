@@ -40,7 +40,11 @@ def run_atm_prediction():
     
     # 示例：获取沪深300或自定义池子，这里演示取前100只活跃股
     # 实际使用建议遍历 collector.get_stock_pool_tree() 获取的全部股票
-    stock_codes = collector.get_stock_pool_tree(pool_size=200, exclude_markets=['BJ'])
+    stock_codes = collector.get_stock_pool_tree(
+        pool_size=200,
+        exclude_markets=['BJ'],
+        exclude_board_types=['688', '300', '301']  # 排除科创板（688）、创业板（300/301）
+    )
     print(f"📥 正在分析 {len(stock_codes)} 只潜力股票...")
 
     results = []
