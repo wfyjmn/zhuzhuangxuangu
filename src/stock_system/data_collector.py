@@ -61,6 +61,17 @@ class MarketDataCollector:
         优化：Token优先从环境变量读取，配置文件仅作fallback
         """
         try:
+            # 加载 .env 文件（如果存在）
+            from pathlib import Path
+            env_file = Path(os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects")) / ".env"
+            if env_file.exists():
+                with open(env_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            os.environ[key.strip()] = value.strip()
+            
             # 优先从环境变量读取token
             env_token = os.getenv('TUSHARE_TOKEN')
             

@@ -6,5 +6,5 @@
   "max_workers": 5,
   "rate_limit_delay": 0.1,
   "cache_expiry_hours": 24,
-  "comment": "token已废弃，请使用环境变量TUSHARE_TOKEN配置"
+  "comment": "Token已移除，请使用 .env 环境变量配置"
 }

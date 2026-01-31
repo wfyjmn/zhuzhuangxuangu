@@ -19,6 +19,12 @@ ENV/
 .env.local
 .env.*.local
 
+# 配置文件（包含敏感信息）
+config/tushare_config.json
+
+# 备份目录（可能包含敏感信息）
+assets/backup_*/
+
 # IDE
 .vscode/
 .idea/
