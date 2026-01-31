@@ -55,6 +55,11 @@ logs/
 temp/
 tmp/
 
+# 数据缓存（过大，不提交）
+assets/data/market_cache/
+assets/daily_prediction_*.csv
+assets/threshold_*.log
+
 # 项目特定
 cleanup_tokens.py
 压缩包*.tar.gz
