@@ -1,13 +1,14 @@
 {
   "strategy_name": "主力资金驱动-高置信度策略",
-  "version": "4.0.0_RealMoneyFlow",
-  "description": "基于Tushare资金流接口的真实主力数据，配合Optuna自动调参",
+  "version": "5.0.0_LatestData",
+  "description": "基于Tushare资金流接口的真实主力数据，配合Optuna自动调参，使用2024-2025年最新数据",
 
   "data": {
-    "start_date": "2021-01-01",
-    "end_date": "2024-01-01",
+    "start_date": "2024-01-01",
+    "end_date": "2025-12-30",
     "n_stocks": 300,
     "comment_n_stocks": "从100提升至300，增加样本多样性，防止过拟合",
+    "comment_date": "更新数据范围至2024-2025年，使用最新数据训练模型",
     
     "min_return_threshold": 0.05,
     "comment_threshold": "从0.03提升至0.05。既然有了主力数据，只抓大肉，不抓毛刺",
