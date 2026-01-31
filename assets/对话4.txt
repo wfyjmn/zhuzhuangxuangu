@@ -1,0 +1,873 @@
+
+Model
+ThinkingThoughts
+Expand to view model thoughts
+
+chevron_right
+User
+#!/usr/bin/env python3
+"""
+完全自动化参数调优训练脚本
+使用 Optuna 贝叶斯优化自动搜索最优超参数
+"""
+import sys
+import os
+import pandas as pd
+import numpy as np
+from typing import Tuple, List, Dict, Any
+from sklearn.metrics import precision_score, recall_score, roc_auc_score, f1_score, confusion_matrix
+import json
+import pickle
+import warnings
+from datetime import datetime
+import optuna
+import akshare as ak
+import xgboost as xgb
+warnings.filterwarnings('ignore')
+添加src和scripts到路径
+workspace_path = os.getenv("COZE_WORKSPACE_PATH", "/workspace/projects")
+sys.path.insert(0, os.path.join(workspace_path, "src"))
+sys.path.insert(0, os.path.join(workspace_path, "scripts"))
+from stock_system.enhanced_features import EnhancedFeatureEngineer
+class AutoTunedTrainer:
+"""自动化参数调优训练器"""
+code
+Code
+def __init__(self, config_path: str = "config/precision_priority_config.json"):
+    self.config_path = config_path
+    self.config = self._load_config()
+    self.feature_engineer = EnhancedFeatureEngineer(config_path)
+    self.best_model = None
+    self.best_params = None
+    self.feature_names = None
+    self.study = None
+
+def _convert_numpy_to_python(self, obj):
+    """将 numpy 类型转换为原生 Python 类型"""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: self._convert_numpy_to_python(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [self._convert_numpy_to_python(item) for item in obj]
+    else:
+        return obj
+
+def _load_config(self) -> Dict:
+    """加载配置"""
+    config = {
+        "data": {
+            "start_date": "2020-01-01",
+            "end_date": datetime.now().strftime("%Y-%m-%d"),
+            "min_return_threshold": 0.04,
+            "prediction_days": [3, 4, 5],
+            "n_stocks": 150
+        },
+        "optuna": {
+            "n_trials": 50,  # 优化试验次数
+            "timeout": 3600,  # 最长优化时间（秒）
+            "direction": "maximize",  # 优化方向
+            "metric": "f1",  # 优化指标: f1, precision, recall, auc
+            "cv_folds": 3,  # 交叉验证折数
+            "early_stopping_rounds": 50
+        },
+        "threshold": {
+            "target_precision": 0.60,
+            "threshold_range": [0.15, 0.45],
+            "threshold_step": 0.01
+        }
+    }
+
+    if os.path.exists(self.config_path):
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                external_config = json.load(f)
+            config.update(external_config)
+        except Exception as e:
+            print(f"⚠ 加载外部配置失败，使用默认配置: {e}")
+
+    return config
+
+def get_stock_list(self, n_stocks: int = 150) -> List[str]:
+    """获取股票列表"""
+    print("=" * 70)
+    print(f"【步骤1】获取{n_stocks}只股票列表")
+    print("=" * 70)
+
+    try:
+        stock_list = ak.stock_info_a_code_name()
+        print(f"✓ 获取到 {len(stock_list)} 只A股股票")
+
+        # 过滤股票
+        stock_list = stock_list[~stock_list['name'].str.contains('ST|退|暂停', na=False)]
+        print(f"✓ 过滤ST、退市后: {len(stock_list)} 只")
+
+        stock_list = stock_list.head(n_stocks * 2)
+        print(f"✓ 选取前 {len(stock_list)} 只股票用于数据采集")
+        print()
+
+        return stock_list['code'].tolist()[:n_stocks]
+
+    except Exception as e:
+        print(f"❌ 获取股票列表失败: {e}")
+        return []
+
+def collect_stock_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """采集单只股票历史数据"""
+    try:
+        df = ak.stock_zh_a_hist(
+            symbol=stock_code,
+            period="daily",
+            start_date=start_date.replace('-', ''),
+            end_date=end_date.replace('-', ''),
+            adjust="qfq"
+        )
+
+        df['stock_code'] = stock_code
+        df['date'] = pd.to_datetime(df['日期'])
+        df = df.drop(columns=['日期'])
+        df = df.set_index('date')
+
+        # 重命名列
+        df = df.rename(columns={
+            '开盘': 'open',
+            '收盘': 'close',
+            '最高': 'high',
+            '最低': 'low',
+            '成交量': 'volume',
+            '成交额': 'amount',
+            '振幅': 'amplitude',
+            '涨跌幅': 'pct_change',
+            '涨跌额': 'change_amount',
+            '换手率': 'turnover_rate'
+        })
+
+        return df
+
+    except Exception as e:
+        print(f"  ⚠ {stock_code} 数据获取失败: {e}")
+        return None
+
+def split_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """按时间序列划分数据集"""
+    print("=" * 70)
+    print("【步骤2】时间序列划分数据集")
+    print("=" * 70)
+
+    df = df.sort_index()
+
+    n = len(df)
+    n_train = int(n * 0.60)
+    n_val = int(n * 0.20)
+
+    train_df = df.iloc[:n_train].copy()
+    val_df = df.iloc[n_train:n_train + n_val].copy()
+    test_df = df.iloc[n_train + n_val:].copy()
+
+    print(f"✓ 数据集划分（按时间）:")
+    print(f"  训练集: {len(train_df)}条 ({train_df.index.min()} 至 {train_df.index.max()})")
+    print(f"  验证集: {len(val_df)}条 ({val_df.index.min()} 至 {val_df.index.max()})")
+    print(f"  测试集: {len(test_df)}条 ({test_df.index.min()} 至 {test_df.index.max()})")
+    print()
+
+    return train_df, val_df, test_df
+
+def create_features_only(self, df: pd.DataFrame) -> pd.DataFrame:
+    """计算特征"""
+    print("=" * 70)
+    print("【步骤3】计算特征（增强版）")
+    print("=" * 70)
+
+    required_cols = ['open', 'high', 'low', 'close', 'volume', 'stock_code']
+    for col in required_cols:
+        if col not in df.columns:
+            raise ValueError(f"数据缺少必要列: {col}")
+
+    df_features = self.feature_engineer.create_all_features(df)
+
+    print(f"✓ 特征计算完成:")
+    print(f"  样本数: {len(df_features)}")
+    print(f"  特征数: {len(self.feature_engineer.get_feature_names())}")
+    print()
+
+    return df_features
+
+def create_labels_separately(self, train_df: pd.DataFrame,
+                               val_df: pd.DataFrame,
+                               test_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """创建标签（目标：≥4%，3-5天）"""
+    print("=" * 70)
+    print("【步骤4】创建标签（目标：≥4%，3-5天）")
+    print("=" * 70)
+
+    min_return = self.config['data']['min_return_threshold']
+    prediction_days = self.config['data']['prediction_days']
+
+    for name, df in [('训练集', train_df), ('验证集', val_df), ('测试集', test_df)]:
+        # 计算未来3-5天的涨幅
+        for days in prediction_days:
+            df[f'future_return_{days}d'] = df.groupby('stock_code')['close'].pct_change(days).shift(-days)
+
+        # 标签：3-5天内任意一天涨幅≥4%
+        future_returns = [f'future_return_{days}d' for days in prediction_days]
+        df['max_future_return'] = df[future_returns].max(axis=1)
+        df['label'] = (df['max_future_return'] >= min_return).astype(int)
+
+        # 移除所有未来数据列
+        future_cols = [col for col in df.columns if 'future_return' in col or col == 'max_future_return']
+        df.drop(columns=future_cols, inplace=True)
+
+        # 移除无法计算的样本
+        df.dropna(subset=['label'], inplace=True)
+
+        print(f"{name}:")
+        print(f"  样本数: {len(df)}")
+        print(f"  正样本（≥{min_return * 100:.0f}%）: {df['label'].sum()} ({df['label'].mean():.2%})")
+
+    print()
+    return train_df, val_df, test_df
+
+def extract_features_and_labels(self, train_df: pd.DataFrame,
+                                  val_df: pd.DataFrame,
+                                  test_df: pd.DataFrame) -> Tuple:
+    """提取特征和标签"""
+    print("=" * 70)
+    print("【步骤5】提取特征和标签")
+    print("=" * 70)
+
+    try:
+        feature_names = self.feature_engineer.get_feature_names()
+    except Exception as e:
+        print(f"ERROR: 获取feature_names失败: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+    try:
+        exclude_cols = [
+            'open', 'high', 'low', 'close', 'volume',
+            'amount', 'amplitude', 'pct_change', 'change_amount',
+            'turnover_rate', 'stock_code', '股票代码',
+            'future_return', 'max_future_return', 'label',
+            'date', 'returns', 'daily_return', '日期'
+        ]
+
+        available_features = [col for col in feature_names if col not in exclude_cols]
+        existing_features = [col for col in available_features if col in train_df.columns]
+
+        # 检查未来数据列
+        future_keywords = ['future', 'return_', 'max_return']
+        for col in existing_features:
+            if any(keyword in col.lower() for keyword in future_keywords):
+                raise ValueError(f"发现未来数据列: {col}，必须完全移除！")
+
+        print(f"DEBUG: 开始提取特征矩阵...")
+        X_train = train_df[existing_features].values
+        X_val = val_df[existing_features].values
+        X_test = test_df[existing_features].values
+
+        y_train = train_df['label'].values
+        y_val = val_df['label'].values
+        y_test = test_df['label'].values
+
+        print(f"✓ 特征和标签提取完成:")
+        print(f"  特征数: {len(existing_features)}")
+        print(f"  训练集: {X_train.shape}, 正样本: {y_train.sum()} ({y_train.mean():.2%})")
+        print(f"  验证集: {X_val.shape}, 正样本: {y_val.sum()} ({y_val.mean():.2%})")
+        print(f"  测试集: {X_test.shape}, 正样本: {y_test.sum()} ({y_test.mean():.2%})")
+        print()
+
+    except Exception as e:
+        print(f"ERROR: 提取特征和标签失败: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+    self.feature_names = available_features
+    return X_train, y_train, X_val, y_val, X_test, y_test
+
+def define_search_space(self, trial: optuna.Trial) -> Dict[str, Any]:
+    """
+    定义 Optuna 参数搜索空间
+    """
+    params = {
+        'learning_rate': trial.suggest_float('learning_rate', 0.003, 0.05, log=True),
+        'max_depth': trial.suggest_int('max_depth', 3, 8),
+        'min_child_weight': trial.suggest_int('min_child_weight', 1, 20),
+        'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+        'reg_lambda': trial.suggest_float('reg_lambda', 0.1, 10, log=True),
+        'reg_alpha': trial.suggest_float('reg_alpha', 0.01, 5, log=True),  # 修复：low 必须 > 0 当 log=True
+        'gamma': trial.suggest_float('gamma', 0.0, 5),
+        'scale_pos_weight': trial.suggest_float('scale_pos_weight', 1.0, 5.0),
+        'n_estimators': trial.suggest_int('n_estimators', 300, 1500),
+        'random_state': 42,
+        'eval_metric': 'logloss',
+        'objective': 'binary:logistic',
+        'tree_method': 'hist'
+    }
+
+    return params
+
+def objective(self, trial: optuna.Trial,
+              X_train: np.ndarray, y_train: np.ndarray,
+              X_val: np.ndarray, y_val: np.ndarray) -> float:
+    """
+    Optuna 优化目标函数
+    使用验证集评估模型性能
+    """
+    try:
+        # 从试验中采样参数
+        params = self.define_search_space(trial)
+
+        # 计算样本权重
+        scale_pos_weight = params['scale_pos_weight']
+        sample_weight = np.where(y_train == 1, scale_pos_weight, 1.0)
+
+        # 创建模型
+        model = xgb.XGBClassifier(**params)
+
+        # 训练模型（XGBoost 3.x 使用 early_stopping_rounds 参数）
+        model.fit(
+            X_train, y_train,
+            sample_weight=sample_weight,
+            eval_set=[(X_val, y_val)],
+            verbose=False
+        )
+
+        # 预测
+        y_pred_proba = model.predict_proba(X_val)[:, 1]
+
+        # 优化目标（从配置中读取）
+        metric = self.config['optuna']['metric']
+
+        if metric == 'f1':
+            # 优化 F1 分数（需要先找到最优阈值）
+            best_f1 = 0
+            for threshold in np.arange(0.15, 0.45, 0.01):
+                y_pred = (y_pred_proba >= threshold).astype(int)
+                if y_pred.sum() > 0:
+                    f1 = f1_score(y_val, y_pred)
+                    if f1 > best_f1:
+                        best_f1 = f1
+            return best_f1
+
+        elif metric == 'precision':
+            # 优化精确率
+            best_precision = 0
+            for threshold in np.arange(0.15, 0.45, 0.01):
+                y_pred = (y_pred_proba >= threshold).astype(int)
+                if y_pred.sum() > 0:
+                    precision = precision_score(y_val, y_pred)
+                    if precision > best_precision:
+                        best_precision = precision
+            return best_precision
+
+        elif metric == 'auc':
+            # 优化 AUC
+            return roc_auc_score(y_val, y_pred_proba)
+
+        else:
+            # 默认优化 F1
+            best_f1 = 0
+            for threshold in np.arange(0.15, 0.45, 0.01):
+                y_pred = (y_pred_proba >= threshold).astype(int)
+                if y_pred.sum() > 0:
+                    f1 = f1_score(y_val, y_pred)
+                    if f1 > best_f1:
+                        best_f1 = f1
+            return best_f1
+
+    except Exception as e:
+        # 返回极小值作为惩罚
+        print(f"  ⚠ 试验失败: {e}")
+        return -1e6
+
+def optimize_threshold(self, y_val: np.ndarray, y_val_pred_proba: np.ndarray) -> float:
+    """优化决策阈值"""
+    print("=" * 70)
+    print("【步骤7】优化决策阈值（目标精确率≥60%）")
+    print("=" * 70)
+
+    target_precision = self.config['threshold']['target_precision']
+    threshold_range = self.config['threshold']['threshold_range']
+    threshold_step = self.config['threshold']['threshold_step']
+
+    thresholds = np.arange(threshold_range[0], threshold_range[1], threshold_step)
+    best_threshold = threshold_range[0]
+    best_f1 = 0
+
+    print(f"{'阈值':<8} {'精确率':<10} {'召回率':<10} {'F1':<10} {'预测数'}")
+    print("-" * 60)
+
+    for threshold in thresholds:
+        y_pred = (y_val_pred_proba >= threshold).astype(int)
+
+        if y_pred.sum() > 0:
+            precision = precision_score(y_val, y_pred, zero_division=0)
+            recall = recall_score(y_val, y_pred, zero_division=0)
+            f1 = f1_score(y_val, y_pred, zero_division=0)
+
+            if precision >= target_precision and f1 > best_f1:
+                best_f1 = f1
+                best_threshold = threshold
+
+            # 打印部分阈值
+            if abs(threshold - 0.25) < 0.02 or abs(threshold - best_threshold) < 0.01:
+                print(f"{threshold:.2f}     {precision:.2%}      {recall:.2%}      {f1:.3f}     {y_pred.sum()}")
+
+    print(f"\n✓ 最优阈值: {best_threshold:.2f} (精确率目标: {target_precision:.0%})")
+    print()
+    return best_threshold
+
+def evaluate_model(self, X_test: np.ndarray, y_test: np.ndarray,
+                   threshold: float = 0.5) -> Dict:
+    """评估模型性能"""
+    print("=" * 70)
+    print("【步骤8】模型性能评估（测试集）")
+    print("=" * 70)
+
+    y_pred_proba = self.best_model.predict_proba(X_test)[:, 1]
+    y_pred = (y_pred_proba >= threshold).astype(int)
+
+    metrics = {
+        'accuracy': (y_pred == y_test).mean(),
+        'precision': precision_score(y_test, y_pred, zero_division=0),
+        'recall': recall_score(y_test, y_pred, zero_division=0),
+        'f1': f1_score(y_test, y_pred, zero_division=0),
+        'auc': roc_auc_score(y_test, y_pred_proba),
+        'n_predictions': y_pred.sum(),
+        'n_positive_samples': y_test.sum()
+    }
+
+    cm = confusion_matrix(y_test, y_pred)
+
+    print(f"✓ 模型性能指标（阈值={threshold:.2f})")
+    print(f"  准确率: {metrics['accuracy']:.2%}")
+    print(f"  精确率: {metrics['precision']:.2%}")
+    print(f"  召回率: {metrics['recall']:.2%}")
+    print(f"  F1分数: {metrics['f1']:.3f}")
+    print(f"  AUC: {metrics['auc']:.4f}")
+    print(f"\n✓ 混淆矩阵:")
+    print(f"  预测为负（实际负样本: {cm[0, 0]}, 实际正样本: {cm[1, 0]})")
+    print(f"  预测为正（实际负样本: {cm[0, 1]}, 实际正样本: {cm[1, 1]})")
+    print(f"\n✓ 预测统计:")
+    print(f"  预测为正的样本数: {metrics['n_predictions']}")
+    print(f"  实际正样本数: {metrics['n_positive_samples']}")
+    print()
+
+    return metrics
+
+def save_model(self, threshold: float, metrics: Dict):
+    """保存模型和配置"""
+    print("=" * 70)
+    print("【步骤9】保存模型和配置")
+    print("=" * 70)
+
+    # 创建模型目录
+    model_dir = os.path.join(workspace_path, "assets", "models")
+    os.makedirs(model_dir, exist_ok=True)
+
+    # 保存模型
+    model_path = os.path.join(model_dir, "auto_tuned_model.pkl")
+    with open(model_path, 'wb') as f:
+        pickle.dump({
+            'model': self.best_model,
+            'feature_names': self.feature_names,
+            'feature_engineer': self.feature_engineer
+        }, f)
+
+    print(f"✓ 模型已保存: {model_path}")
+
+    # 保存元数据（转换 numpy 类型为原生 Python 类型）
+    metadata = {
+        'model_name': 'auto_tuned',
+        'training_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'feature_count': len(self.feature_names),
+        'best_params': self.best_params,
+        'decision_threshold': float(threshold),
+        'metrics': self._convert_numpy_to_python(metrics),
+        'config': self.config,
+        'optimization': {
+            'n_trials': self.config['optuna']['n_trials'],
+            'best_score': float(self.study.best_value) if self.study else None,
+            'metric': self.config['optuna']['metric']
+        }
+    }
+
+    metadata_path = os.path.join(model_dir, "auto_tuned_metadata.json")
+    with open(metadata_path, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+    print(f"✓ 元数据已保存: {metadata_path}")
+    print()
+
+    # 保存 Optuna 研究结果
+    if self.study:
+        study_path = os.path.join(model_dir, "optuna_study.pkl")
+        with open(study_path, 'wb') as f:
+            pickle.dump(self.study, f)
+        print(f"✓ Optuna 研究已保存: {study_path}")
+        print()
+
+def run_optuna_optimization(self, X_train: np.ndarray, y_train: np.ndarray,
+                            X_val: np.ndarray, y_val: np.ndarray):
+    """运行 Optuna 优化"""
+    print("=" * 70)
+    print("【步骤6】Optuna 自动化参数调优")
+    print("=" * 70)
+
+    print(f"优化配置:")
+    print(f"  试验次数: {self.config['optuna']['n_trials']}")
+    print(f"  超时时间: {self.config['optuna']['timeout']}秒")
+    print(f"  优化指标: {self.config['optuna']['metric']}")
+    print(f"  优化方向: {self.config['optuna']['direction']}")
+    print()
+
+    # 创建研究
+    self.study = optuna.create_study(direction=self.config['optuna']['direction'])
+
+    # 定义进度回调
+    def progress_callback(study, trial):
+        if trial.number % 10 == 0 or trial.number == self.config['optuna']['n_trials'] - 1:
+            print(f"  试验 {trial.number + 1}/{self.config['optuna']['n_trials']}: "
+                  f"最佳分数 = {study.best_value:.4f}")
+
+    # 运行优化
+    self.study.optimize(
+        lambda trial: self.objective(trial, X_train, y_train, X_val, y_val),
+        n_trials=self.config['optuna']['n_trials'],
+        timeout=self.config['optuna']['timeout'],
+        callbacks=[progress_callback],
+        show_progress_bar=False
+    )
+
+    # 输出最优结果
+    print(f"\n✓ 优化完成！")
+    print(f"  最优分数: {self.study.best_value:.4f}")
+    print(f"  最优参数:")
+    for key, value in self.study.best_params.items():
+        print(f"    {key}: {value}")
+    print()
+
+    # 训练最优模型
+    self.best_params = self.study.best_params.copy()
+
+    # 计算样本权重
+    scale_pos_weight = self.best_params['scale_pos_weight']
+    sample_weight = np.where(y_train == 1, scale_pos_weight, 1.0)
+
+    # 创建并训练最优模型
+    self.best_model = xgb.XGBClassifier(**self.best_params)
+
+    # 训练模型
+    self.best_model.fit(
+        X_train, y_train,
+        sample_weight=sample_weight,
+        eval_set=[(X_val, y_val)],
+        verbose=False
+    )
+
+    # 特征重要性
+    importance_df = pd.DataFrame({
+        'feature': self.feature_names,
+        'importance': self.best_model.feature_importances_
+    }).sort_values('importance', ascending=False)
+
+    print("✓ Top 10 特征重要性:")
+    for idx, row in importance_df.head(10).iterrows():
+        print(f"  {row['feature']}: {row['importance']:.4f}")
+    print()
+
+def train_full_pipeline(self):
+    """完整训练流程"""
+    print("\n" + "=" * 70)
+    print("自动化参数调优训练流程")
+    print("=" * 70)
+    print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print()
+
+    # 1. 获取股票列表
+    stock_codes = self.get_stock_list(self.config['data']['n_stocks'])
+    if not stock_codes:
+        raise ValueError("未能获取股票列表")
+
+    # 2. 采集数据
+    print("=" * 70)
+    print("【步骤2】采集股票历史数据")
+    print("=" * 70)
+
+    all_data = []
+    for i, stock_code in enumerate(stock_codes):
+        if (i + 1) % 20 == 0:
+            print(f"  进度: {i + 1}/{len(stock_codes)}")
+
+        df = self.collect_stock_data(
+            stock_code,
+            self.config['data']['start_date'],
+            self.config['data']['end_date']
+        )
+
+        if df is not None and len(df) > 0:
+            all_data.append(df)
+
+    if not all_data:
+        raise ValueError("未能采集到任何数据")
+
+    df_all = pd.concat(all_data, ignore_index=False)
+    df_all = df_all.sort_index()
+
+    print(f"\n✓ 数据采集完成:")
+    print(f"  总样本数: {len(df_all)}")
+    print(f"  股票数: {df_all['stock_code'].nunique()}")
+    print(f"  时间范围: {df_all.index.min()} 至 {df_all.index.max()}")
+    print()
+
+    # 3. 划分数据集
+    train_df, val_df, test_df = self.split_data(df_all)
+
+    # 4. 计算特征
+    train_df_features = self.create_features_only(train_df)
+    val_df_features = self.create_features_only(val_df)
+    test_df_features = self.create_features_only(test_df)
+
+    # 5. 创建标签
+    train_df_labeled, val_df_labeled, test_df_labeled = self.create_labels_separately(
+        train_df_features, val_df_features, test_df_features
+    )
+
+    # 6. 提取特征和标签
+    X_train, y_train, X_val, y_val, X_test, y_test = self.extract_features_and_labels(
+        train_df_labeled, val_df_labeled, test_df_labeled
+    )
+
+    # 7. Optuna 自动化参数调优
+    self.run_optuna_optimization(X_train, y_train, X_val, y_val)
+
+    # 8. 优化阈值
+    y_val_pred_proba = self.best_model.predict_proba(X_val)[:, 1]
+    optimal_threshold = self.optimize_threshold(y_val, y_val_pred_proba)
+
+    # 9. 评估模型
+    metrics = self.evaluate_model(X_test, y_test, optimal_threshold)
+
+    # 10. 保存模型
+    self.save_model(optimal_threshold, metrics)
+
+    print("=" * 70)
+    print("✓ 训练完成！")
+    print("=" * 70)
+    print(f"\n模型文件: assets/models/auto_tuned_model.pkl")
+    print(f"测试集精确率: {metrics['precision']:.2%}")
+    print(f"测试集AUC: {metrics['auc']:.4f}")
+    print(f"测试集F1: {metrics['f1']:.3f}")
+    print(f"测试集召回率: {metrics['recall']:.2%}")
+    print(f"\n最优参数已自动搜索并保存！")
+    print()
+
+    return self.best_model, optimal_threshold
+def main():
+"""主函数"""
+try:
+trainer = AutoTunedTrainer()
+model, threshold = trainer.train_full_pipeline()
+code
+Code
+print("\n✨ 自动化参数调优训练完成！")
+    print(f"   最优阈值: {threshold:.2f}")
+    print(f"   最优参数: {trainer.best_params}")
+
+except Exception as e:
+    print(f"\n❌ 训练失败: {e}")
+    import traceback
+    traceback.print_exc()
+if name == "main":
+main()
+触发 OOM 的原因
+系统内存(2GB) - 已用内存(300-500MB) - 训练峰值(1.5-1.8GB) = 负数
+→ 触发 OOM Killer 静默杀死进程
+优化建议
+减少样本数量: 300 只 → 150 只
+减少试验次数: 100 次 → 50 次
+添加内存清理: del + gc.collect()
+降低模型复杂度：减少 n_estimators、max_depth
+当前训练状态: 新训练已运行到 51/100 试验，最佳 F1=0.4714
+是否有更好的解决方式
+Model
+ThinkingThoughts
+Expand to view model thoughts
+
+chevron_right
+你的分析非常精准：内存资源（2GB）与 XGBoost 训练所需的峰值内存不匹配是根本原因。
+虽然“减少数据量（减少股票数）”和“降低模型复杂度”是有效的妥协手段，但它们会牺牲模型的最终性能。
+针对 2GB 内存环境，有比“删数据”更好的工程化解决方案。以下是按推荐程度排序的 4 种方案：
+方案 1：开启/增加 SWAP（虚拟内存）—— 最稳健的“救命稻草”
+这是最直接、不需要修改代码且能保证训练完成的方法。虽然使用磁盘作为内存会降低速度，但能防止进程被杀。
+操作步骤（Linux 环境）：
+在终端运行以下命令，增加 4GB 的虚拟内存：
+code
+Bash
+# 1. 创建 4GB 的交换文件
+sudo fallocate -l 4G /swapfile
+# 2. 设置权限
+sudo chmod 600 /swapfile
+# 3. 格式化为 swap
+sudo mkswap /swapfile
+# 4. 启用 swap
+sudo swapon /swapfile
+# 5. 确认是否生效
+free -h
+优点： 几乎 100% 解决 OOM 问题，允许保留 300 只甚至更多股票。
+缺点： 训练速度会变慢（SSD 影响较小，HDD 影响大）。
+方案 2：数据降维 (Float32) —— 内存占用减半
+Pandas 默认使用 float64（8字节），而股票价格和技术指标只需要 float32（4字节）甚至 float16 即可满足精度。这可以将数据内存占用直接砍半。
+代码修改：
+在 collect_stock_data 方法的最后，添加类型转换：
+code
+Python
+# ... 原有代码 ...
+    df = df.rename(columns={...})
+
+    # 【新增优化】将 float64 转换为 float32，节省 50% 内存
+    float_cols = df.select_dtypes(include=['float64']).columns
+    df[float_cols] = df[float_cols].astype('float32')
+    
+    return df
+在 create_features_only 中生成的特征也同样处理：
+code
+Python
+# ... 在 return df_features 之前 ...
+    # 【新增优化】再次确保特征也是 float32
+    float_cols = df_features.select_dtypes(include=['float64']).columns
+    df_features[float_cols] = df_features[float_cols].astype('float32')
+    
+    return df_features
+方案 3：激进的垃圾回收 (GC) —— 防止内存泄漏
+Optuna 的 trial 循环中容易积累临时变量。需要在 objective 函数中手动清理。
+代码修改：
+在 objective 函数的 try...except 块的最后（return 之前）：
+code
+Python
+def objective(self, trial, ...):
+        try:
+            # ... 训练和预测代码 ...
+            
+            # 【新增优化】在 return 之前清理大对象
+            del model
+            del sample_weight
+            del y_pred_proba
+            import gc
+            gc.collect()  # 强制垃圾回收
+            
+            return result_metric
+            
+        except Exception as e:
+            # ...
+同时，在 train_full_pipeline 中，一旦提取完 X_train 等 numpy 数组，立即删除原始的 DataFrame：
+code
+Python
+# ... 步骤 6 提取特征和标签 ...
+    X_train, y_train, X_val, y_val, X_test, y_test = self.extract_features_and_labels(...)
+    
+    # 【新增优化】提取完 numpy 数组后，立即释放巨大的 DataFrame
+    del df_all
+    del train_df, val_df, test_df
+    del train_df_labeled, val_df_labeled, test_df_labeled
+    import gc
+    gc.collect()
+    
+    print("DEBUG: 原始 DataFrame 已清理，内存已释放")
+方案 4：使用 XGBoost 的直方图近似与内存优化参数
+你已经使用了 tree_method='hist'，这很好。还可以进一步限制 XGBoost 内部用于构建直方图的内存。
+代码修改：
+在 define_search_space 中添加/修改：
+code
+Python
+params = {
+        # ... 原有参数 ...
+        'tree_method': 'hist',
+        
+        # 【新增优化】
+        # 减少用于构建直方图的箱数，默认 256，改为 128 或 64 可显著减少内存
+        # 虽然可能微弱影响精度，但比丢弃数据要好
+        'max_bin': trial.suggest_categorical('max_bin', [64, 128]), 
+        
+        # 启用单精度浮点数训练（XGBoost 默认可能用双精度）
+        # 注意：这通常不需要显式设置，只要输入数据是 float32 即可
+    }
+综合建议总结
+立刻执行（不中断当前训练）： 如果你有服务器的 root 权限，马上执行方案 1（开启 Swap）。这可以保护正在运行的 PID 109 不会因为接下来的复杂模型训练而被杀掉。
+下一轮优化（修改脚本）：
+引入 方案 2 (Float32)：这是“免费”的优化。
+引入 方案 3 (GC)：这是良好的编程习惯。
+尽量避免： 不要轻易减少股票数量（300只本来就不多，再少容易过拟合）或大幅减少 n_estimators（会导致欠拟合）。
+当前预测：
+既然 PID 109 已经跑到了 51/100 且 F1 达到 0.4714，说明目前的参数在内存边缘试探。如果开启 Swap，应该能稳稳跑完 100 次试验。
+Model
+ThinkingThoughts
+Expand to view model thoughts
+
+chevron_right
+这是一份非常典型的**“高召回、低精确”**（High Recall, Low Precision）的训练结果。
+首先，恭喜你解决了工程难题！OOM 问题彻底解决，且 AUC 从 0.54 提升到了 0.62，这证明你的训练管线（Pipeline）现在是健壮的，且模型确实学到了一些规律（比随机猜只要好）。
+但是，从交易实战的角度来看，当前模型是不可用的。
+🚨 核心问题诊断：为什么精确率只有 19%？
+你提到了模型“宁滥勿缺”，这非常准确。导致这种情况的数学原因在于以下两个参数的组合：
+scale_pos_weight: 2.332: 这个参数告诉 XGBoost：“犯错漏掉一个涨停股的惩罚，是误买一个跌停股惩罚的 2.3 倍”。模型为了避免“漏掉”，于是倾向于把所有稍微有点上涨迹象的股票都预测为“正”。
+优化目标 F1: F1 是精确率和召回率的调和平均。当召回率冲到 85% 时，F1 分数会被拉高，即便精确率很烂。
+实战后果：
+如果按照这个模型交易，买入 100 只股票，只有 20 只会涨，剩下 80 只会亏损或横盘。加上交易手续费，这将是一个亏损策略。
+🛠️ 下一步行动方案：从“能跑通”到“能赚钱”
+既然管线已跑通，现在的重点是策略调优。建议按以下顺序调整：
+1. 调整优化目标（最关键）
+不要再优化 F1 了，F1 对交易系统误导性太强。
+新策略： 训练时优化 AUC，阈值选择时锁定 精确率（Precision）。
+原因： AUC 衡量的是模型给“好股票”打分是否比“坏股票”高。只要 AUC 高，我们总能找到一个极高的阈值（比如 0.9），在这个阈值下精确率能达标。
+修改 config.json 或代码逻辑：
+metric: 改为 "auc" (让 Optuna 寻找分离度最好的参数)。
+移除 scale_pos_weight 的搜索，或者将其强制设为 1.0（让模型客观评估概率，不要人为加权）。
+2. 放宽标签定义（降低难度）
+预测 3-5 天涨 5% 在 A 股震荡市中很难，且充满了随机噪声。
+旧目标： 3-5 天涨幅 ≥ 5%
+新目标： 3-5 天涨幅 ≥ 3% (或者使用 相对收益，即跑赢大盘 2%)
+好处： 正样本数量会增加，减少数据不平衡带来的学习难度。
+3. 特征工程升级（解决“假阳性”）
+现在的 Top 特征全是技术指标（MA, Momentum, MACD）。技术指标最大的问题是滞后和骗线。模型看到“金叉”就买，但不知道大盘在暴跌。
+建议加入以下两个维度的特征来过滤假信号：
+大盘/环境特征（必加）：
+market_sentiment: 当日大盘（上证指数）的涨跌幅。
+sector_trend: 个股所属行业的平均涨跌幅（板块效应）。
+逻辑：倾巢之下无完卵，大盘跌时，再好的技术形态也是假突破。
+量价配合特征：
+单纯的 volume 没用。需要计算 “量比” 或 “放量程度”。
+比如：vol_ratio_5d = 今日成交量 / 过去5日均量。
+逻辑：无量上涨多为诱多。
+4. 阈值选择逻辑（硬性约束）
+在 optimize_threshold 函数中，不要只看 F1。
+修改逻辑：
+code
+Python
+# 伪代码：寻找满足精确率要求的最低阈值
+target_precision = 0.60
+valid_thresholds = []
+
+for t in thresholds:
+    if precision(t) >= target_precision:
+        valid_thresholds.append(t)
+
+if valid_thresholds:
+    # 在满足精确率的前提下，选择召回率最高的那个阈值
+    best_t = max(valid_thresholds, key=lambda x: recall(x))
+else:
+    print("警告：没有任何阈值能达到 60% 精确率")
+📉 总结与预期
+现在的 19% 精确率是不可接受的。通过上述调整（特别是去掉 scale_pos_weight 和 改用 AUC 优化），你的下一次训练预期结果应该是：
+AUC: 继续提升至 0.65 - 0.7。
+召回率: 会大幅下降（从 85% 跌到 10%-20% 都是正常的）。
+精确率: 应该能提升到 50% - 60%。
+记住：在交易中，我们宁愿错过 100 个机会（低召回），也不能抓住 100 个全是坑的机会（低精确）。
+请按此思路调整配置，开始下一轮训练！
